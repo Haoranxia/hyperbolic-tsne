@@ -36,7 +36,7 @@ cdef int ANGLE = 1
 cdef double MACHINE_EPSILON = np.finfo(np.double).eps
 cdef int TAKE_TIMING = 1
 cdef int AREA_SPLIT = 0
-cdef int GRAD_FIX = 1
+cdef int GRAD_FIX = 0
 
 cdef double clamp(double n, double lower, double upper) nogil:
     cdef double t = lower if n < lower else n
@@ -814,6 +814,7 @@ cdef double dot_q(DTYPE_t* u, DTYPE_t* v) nogil:
 cdef double distance_grad_q(DTYPE_t* u, DTYPE_t* v, int ax) nogil:
     return distance_grad(u[0], u[1], v[0], v[1], ax)
 
+# Hyperbolic distance function
 cpdef double distance(double u0, double u1, double v0, double v1) nogil:
     if fabs(u0 - v0) <= EPSILON and fabs(u1 - v1) <= EPSILON:
         return 0.
@@ -828,6 +829,7 @@ cpdef double distance(double u0, double u1, double v0, double v1) nogil:
 
     return result
 
+# Gradient of hyperbolic distance?
 cdef double distance_grad(double u0, double u1, double v0, double v1, int ax) nogil:
     if fabs(u0 - v0) <= EPSILON and fabs(u1 - v1) <= EPSILON:
         return 0.
@@ -1159,14 +1161,20 @@ cdef double compute_gradient_positive(double[:] val_P,
         double dij, qij, pij, mult, dij_sq
 
     with nogil, parallel(num_threads=num_threads):
+        # Loop over each row i (through CSR matrix format)
+        # Each row i means we're taking a node i and computing forces between i and every j (p_i1, p_i2, ...)
+        # We compute the force term of the gradient per datapoint y_i
         for i in prange(start, n_samples, schedule='static'):
-            # Init the gradient vector
+            # Init the gradient vector for datapoint y_i
             for ax in range(n_dimensions):
+                # Set the current row to 0; Must be done this way due to CSR matrix use
                 pos_f[i * n_dimensions + ax] = 0.0
+                
             # Compute the positive interaction for the nearest neighbors
+            # Loop over all indices in val_P, neifhbours corresponding to row i (through CSR matrix accessing)
             for k in range(indptr[i], indptr[i+1]):
-                j = neighbors[k]
-                pij = val_P[k]
+                j = neighbors[k]    # get the neighbour j as specified by index k
+                pij = val_P[k]      # get the affinity between i and j
 
                 dij = distance(pos_reference[i, 0], pos_reference[i, 1], pos_reference[j, 0], pos_reference[j, 1])
                 dij_sq = dij * dij
@@ -1184,9 +1192,12 @@ cdef double compute_gradient_positive(double[:] val_P,
                 if compute_error:
                     qij = qij / sum_Q
                     C += pij * log(max(pij, FLOAT32_TINY) / max(qij, FLOAT32_TINY))
+
+                # For every dimension of the embedding, calculate the force of that dimension
                 for ax in range(n_dimensions):
                     pos_f[i * n_dimensions + ax] += mult * distance_grad(pos_reference[i, 0], pos_reference[i, 1], pos_reference[j, 0], pos_reference[j, 1], ax)
     return C
+
 
 cdef double compute_gradient_negative(double[:, :] pos_reference,
                                       double* neg_f,
@@ -1242,7 +1253,6 @@ cdef double compute_gradient_negative(double[:, :] pos_reference,
             # is about 10-15x more expensive than the
             # following for loop
             for j in range(idx // offset):
-
                 dist2s = summary[j * offset + n_dimensions]
                 size = summary[j * offset + n_dimensions + 1]
                 qijZ = 1. / (1. + dist2s)  # 1/(1+dist)
@@ -1321,6 +1331,7 @@ def gradient(float[:] timings,
 
     if TAKE_TIMING:
         t1 = clock()
+
     if exact:
         C = exact_compute_gradient(timings, val_P, pos_output, neighbors, indptr, forces,
                              qt, theta, dof, skip_num_points, -1, compute_error,
@@ -1329,6 +1340,164 @@ def gradient(float[:] timings,
         C = compute_gradient(timings, val_P, pos_output, neighbors, indptr, forces,
                              qt, theta, dof, skip_num_points, -1, compute_error,
                              num_threads)
+    if TAKE_TIMING:
+        t2 = clock()
+        timings[1] = ((float) (t2 - t1)) / CLOCKS_PER_SEC
+
+    if not compute_error:
+        C = np.nan
+    return C
+
+
+
+
+
+
+########################
+# global hSNE Gradient #
+########################
+"""
+Accessing sparse matrix Data[i][j] using CSR matrix format
+1. 3 arrays encode the sparse matrix. 
+   V = [all the nonzero entries] = [row_1 nonzeros, row_2 nonzeros, ...] all in 1 contiguous order
+   C = [column idx of each nonzero entry]
+   V, C match index for index V[a] has col_idx C[a]
+
+   R = [idx of the element in V where the n_th row starts]
+   R[b] = element in V that indicates the start of row b
+
+2. V[R[i]:R[i + 1]], C[R[i]:R[i + 1]] gives elements and corresponding column indices of row i in Data[:][:]
+3. Linearly search in C[R[i]:R[i+1]] for the value 'j' and corresponding index (ex. C[R[i]:R[i+1]][b] = j)
+4. Then V[R[i]:R[i + 1]][b] <-> Data[i][j]
+"""
+cdef double compute_global_hsne_gradient(
+                            float[:] timings,
+                            double[:] val_P,            
+                            double[:, :] pos_reference,
+                            np.int64_t[:] neighbors,
+                            np.int64_t[:] indptr,
+                            double[:] global_P,                # Global affinity data matrix (in CSR format)
+                            np.int64_t[:] global_neighbours,   # Column indices of CSR matrix (for global_P)
+                            np.int64_t[:] global_indptr,       # Row_indices of CSR matrix (for global_P)
+                            np.int64_t lbda,                   # Scalar to multiply global gradient term by 
+                            double[:, :] tot_force,            # The matrix we fill up with the computed forces between all (i, j)
+                            _QuadTree qt,
+                            float theta,
+                            int dof,
+                            long start,
+                            long stop,
+                            bint compute_error,
+                            int num_threads) nogil:
+    # Having created the tree, calculate the gradient
+    # in two components, the positive and negative forces
+    cdef:
+        long i, coord
+        int ax
+        long n_samples = pos_reference.shape[0]
+        int n_dimensions = qt.n_dimensions
+        double sQ
+        double error
+        double neg_force
+        clock_t t1 = 0, t2 = 0
+
+    cdef double* neg_f = <double*> malloc(sizeof(double) * n_samples * n_dimensions)
+    cdef double* pos_f = <double*> malloc(sizeof(double) * n_samples * n_dimensions)
+    cdef double* pos_f2 = <double*> malloc(sizeof(double) * n_samples * n_dimensions)
+
+    if TAKE_TIMING:
+        t1 = clock()
+
+    # Negative forces part
+    sQ = compute_gradient_negative(pos_reference, neg_f, qt, dof, theta, start,
+                                   stop, num_threads)
+    if TAKE_TIMING:
+        t2 = clock()
+        timings[2] = ((float) (t2 - t1)) / CLOCKS_PER_SEC
+
+    if TAKE_TIMING:
+        t1 = clock()
+
+    # Positive forces for main gradient term
+    error = compute_gradient_positive(val_P, pos_reference, neighbors, indptr,
+                                      pos_f, n_dimensions, dof, sQ, start,
+                                      qt.verbose, compute_error, num_threads)
+
+    # Positive forces for global gradient term
+    error2 = compute_gradient_positive(global_P, pos_reference, neighbors, global_indptr,
+                                      pos_f2, n_dimensions, dof, sQ, start,
+                                      qt.verbose, compute_error, num_threads)
+    
+    if TAKE_TIMING:
+        t2 = clock()
+        timings[3] = ((float) (t2 - t1)) / CLOCKS_PER_SEC
+
+    for i in prange(start, n_samples, nogil=True, num_threads=num_threads, schedule='static'):
+        for ax in range(n_dimensions):
+            coord = i * n_dimensions + ax
+            neg_force = neg_f[coord] / sQ           # So we don't repeat the computation
+            tot_force[i, ax] = (pos_f[coord] - neg_force) + lbda * (pos_f2[coord] - neg_force)
+
+    free(neg_f)
+    free(pos_f)
+    free(pos_f2)
+    return error + error2
+
+
+# NOTE: ONLY IMPLEMENTED FOR BH APPROX
+def global_hsne_gradient(
+             float[:] timings,                  # Array for trackig runtime
+             double[:] val_P,                   # The high dimensional affinity data matrix (in CSR format)
+             double[:, :] pos_output,           # Matrix containing embeddings (embedding)
+             np.int64_t[:] neighbors,           # Column_indices of CSR matrix (for val_P)
+             np.int64_t[:] indptr,              # Row_indices of CSR matrix (for val_P)
+             np.int64_t lbda,                   # Scalar to multiply global gradient term by 
+             double[:] global_P,                # Global affinity data matrix (in CSR format)
+             np.int64_t[:] global_neighbours,   # Column indices of CSR matrix (for global_P)
+             np.int64_t[:] global_indptr,       # Row_indices of CSR matrix (for global_P)
+             double[:, :] forces,               # Matrix to store the forces in per element ij (initially all 0)
+             float theta,                       # Threshold distance to use BH approximation for 
+             int n_dimensions,                  # nr. of dimensions of high data (original high dim. data)
+             int verbose,
+             int dof=1,
+             long skip_num_points=0,
+             bint compute_error=1,
+             int num_threads=1,
+             bint exact=1,
+             bint area_split=0,
+             bint grad_fix=0):
+    
+    cdef double C
+    cdef int n
+    cdef _QuadTree qt = _QuadTree(pos_output.shape[1], verbose)
+    cdef clock_t t1 = 0, t2 = 0
+
+    global AREA_SPLIT
+    AREA_SPLIT = area_split
+
+    global GRAD_FIX
+    GRAD_FIX = grad_fix
+
+    # Build the tree
+    if TAKE_TIMING:
+        t1 = clock()
+
+    qt.build_tree(pos_output)
+
+    if TAKE_TIMING:
+        t2 = clock()
+        timings[0] = ((float) (t2 - t1)) / CLOCKS_PER_SEC
+
+    if TAKE_TIMING:
+        t1 = clock()
+    
+    # Compute gradient
+    # TODO: Implement the actual gradient computation for the new gradient
+    C = compute_global_hsne_gradient(timings, 
+                            val_P, pos_output, neighbors, indptr, 
+                            global_P, global_neighbours, global_indptr, lbda, forces, 
+                            qt, theta, dof, skip_num_points, -1, compute_error,
+                            num_threads)
+
     if TAKE_TIMING:
         t2 = clock()
         timings[1] = ((float) (t2 - t1)) / CLOCKS_PER_SEC

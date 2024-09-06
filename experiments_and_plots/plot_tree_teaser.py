@@ -254,12 +254,12 @@ if __name__ == '__main__':
     ax1 = plt.subplot(121, projection='polar')
     ax2 = plt.subplot(122)
 
-    points = np.load("../teaser_files/c_elegans_embedding.npy")
-    labels = np.load("../teaser_files/c_elegans_labels.npy", allow_pickle=True)
+    points = np.load("./teaser_files/c_elegans_embedding.npy")
+    labels = np.load("./teaser_files/c_elegans_labels.npy", allow_pickle=True)
 
     plot_tree(points, ax1)
     plot_embedding(points, labels, ax2)
 
     plt.tight_layout()
 
-    plt.savefig("../teaser_files/c_elegans_embedding.png")
+    plt.savefig("./teaser_files/c_elegans_embedding.png")

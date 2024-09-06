@@ -28,7 +28,7 @@ from .hd_mat_ import hd_matrix, check_knn_method, check_hd_method, get_n_neighbo
 class Datasets(Enum):
     MNIST = auto()  # DONE
     MYELOID = auto()  # DONE
-    PLANARIA = auto()  # DONE
+    PLANARIA = auto()  # DONEx
     PAUL = auto()  # DONE
     C_ELEGANS = auto()  # DONE
     LUKK = auto()  # DONE

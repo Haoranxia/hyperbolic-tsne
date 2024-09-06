@@ -112,7 +112,11 @@ class HyperbolicTSNE(BaseEstimator):
         self.verbose = verbose
         self.random_state = random_state
         self.n_jobs = n_jobs
+
         self.embedding_ = None
+        self.cf = None                      # Cost function value
+        self.runtime = 0.0                  # Runtime of embedding process
+        self.its = 0                        # Number of iterations optimizer takes 
 
     def _fit(self, X):
         """Checks whether everything is in order to run the optimizer. Taking into account 
@@ -133,6 +137,7 @@ class HyperbolicTSNE(BaseEstimator):
             Embedding of the training data in low-dimensional space.
         """
 
+        # Initialization and checks
         random_state = check_random_state(self.random_state)
         X_is_iterable = type(X) is tuple or type(X) is list
 
@@ -192,6 +197,8 @@ class HyperbolicTSNE(BaseEstimator):
                     print(
                         "[HyperbolicTSNE] Warning: V matrix is None, make sure this is supported by the optimizer")
 
+
+        # Compute high dim. affinity matrix
         D, V = hd_mat.hd_matrix(X=X, D=D, V=V,
                                 metric=self.metric, n_neighbors=self.knn_neighbors,
                                 hd_method=self.hd_method, hd_params=self.hd_params,
@@ -207,11 +214,16 @@ class HyperbolicTSNE(BaseEstimator):
 
         # Checking opt params
         self.opt_params["D"] = D  # Some optimizers need this
+
+        # Initialize optimizer with correct parameters (set before we construct this class)
+        # NOTE: The instance of the class (in self.opt_method) is explicitly created here
         self.optimizer = self.opt_method(
             Y0=X_embedded, V=V, n_components=self.n_components, other_params=self.opt_params, verbose=self.verbose)
+        
+        # Compute embeddings
         X_embedded, cf, runtime, its = self.optimizer.run()
 
-        return X_embedded
+        return X_embedded, cf, runtime, its
 
     def fit_transform(self, X, Y=None):
         """Fit X into an embedded space and return that transformed output.
@@ -230,8 +242,12 @@ class HyperbolicTSNE(BaseEstimator):
         X_embedded : array, shape (n_samples, n_components)
             Embedding of the training data in low-dimensional space.
         """
-        X_embedded = self._fit(X)
+        X_embedded, cf, runtime, its = self._fit(X)
         self.embedding_ = X_embedded
+        self.cf = cf 
+        self.runtime = runtime 
+        self.its = its
+
         return self.embedding_
 
     def fit(self, X, Y=None):

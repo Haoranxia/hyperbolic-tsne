@@ -85,7 +85,7 @@ def check_hd_method(method, params):
     return method, ps
 
 
-def get_n_neighbors(n_samples, n_neighbors, hd_method, other_params):
+def  get_n_neighbors(n_samples, n_neighbors, hd_method, other_params):
     """Returns the number of neighbors for a specific method.
 
     Parameters
@@ -306,7 +306,6 @@ def _distance_matrix(X, method="sklearn", n_neighbors=None, metric="euclidean", 
 ##############
 # V matrices #
 ##############
-
 def _vdm2008(distances, perplexity=50, verbose=0, n_jobs=1):
     """Computation of affinity matrix as described in TSNE paper. 
     Compute joint probabilities v_ij from distances using just nearest
@@ -359,3 +358,28 @@ def _vdm2008(distances, perplexity=50, verbose=0, n_jobs=1):
         print(f"Computed conditional probabilities in {duration:.3f}s")
 
     return V
+
+
+###################################
+# Global hsne similarity function #
+###################################
+# NOTE: Nothing special really, just a knn matrix with higher perplexity to capture global structure
+def globalhsne_D_V(X, method="hnswlib", n_neighbours=50):
+    """
+    By default "hnswlib" knn method is used. With euclidean metric, this defaults to l2 norm
+    """
+    # Distance matrix D
+    # D contains squared euclidean norms between every ij 
+    # Has shape (n_samples, n_samples) but in CSR matrix format
+    D = _distance_matrix(X, method=method, n_neighbors=n_neighbours)
+
+    # Use distance matrix D to compute affinity matrix V (high dim. affinities)
+    # We just need to normalize them to probabilities (i.e. divide by D.sum())
+    V = D / np.maximum(D.sum(), MACHINE_EPSILON)
+
+    return D, V
+
+
+
+
+    

@@ -23,9 +23,11 @@ def check_params(params):
         raise Exception(
             "`other_params` should include a BaseCostFunction object `cf`, its config parameters "
             "`cf_config_params` and its runtime params `cf_params`")
+    
     # 2. cf_config_params and cf_params should be either None or dict
     if params["cf_config_params"] is not None and type(params["cf_config_params"]) is not dict:
         raise Exception("`cf_config_params` should be either None or a dict with the appropriate setup parameters")
+    
     if params["cf_params"] is not None and type(params["cf_params"]) is not dict:
         raise Exception("`cf_params` should be either None or a dict with the appropriate runtime parameters")
 
@@ -56,6 +58,15 @@ def check_params(params):
             raise Exception("`type` of sequence's block in SequentialOptimizer was not recognized.")
 
 
+
+
+
+
+
+
+
+
+
 class SequentialOptimizer:
 
     def __init__(self, *, Y0, V, n_components, other_params=None, verbose=0):
@@ -76,8 +87,9 @@ class SequentialOptimizer:
         self.verbose = verbose
         self.cf_val = np.inf
 
+        # Construct the cost function class
         self.cf = self.params["cf"](n_components=self.n_components,
-                                    other_params=self.params["cf_config_params"])
+                                    other_params=(self.params["cf_config_params"] | self.params["cf_params"]))
 
     @property
     def Y(self):
@@ -141,20 +153,25 @@ class SequentialOptimizer:
                 logging_dict["log_arrays_ids"] = logging_dict.get("log_arrays_ids", None)
         solver_counter = 0
         # end: logging
+
         start = time()
         for se in self.params["sequence"]:
             if se["type"] == "processor":
                 self.Y, self.V = se["function"](self.Y, self.V, self.cf, **se["params"])
+                
             elif se["type"] == "solver":
                 se["params"]["start_it"] = self.params["solver_its_done"]
                 se["params"]["verbose"] = self.verbose
+
                 # Start: logging
                 self.Y, self.cf_val, its = se["function"](
                     self.Y, self.cf, dict({"V": self.V}, **self.params["cf_params"]), logging_key="sequential_opt_" + str(solver_counter), logging_dict=logging_dict, **se["params"]
                 )
                 solver_counter += 1
                 # End: logging
+
                 self.params["solver_its_done"] = se["params"]["start_it"] + its
+
         end = time()
 
         return self.Y, self.cf_val, end - start, self.params["solver_its_done"]
@@ -215,20 +232,22 @@ class SequentialOptimizer:
         """
         print("Please note that `empty_sequence` uses the KL divergence with Barnes-Hut approximation (angle=0.5) by default.")
         if cf_config_params is None:
-            cf_config_params = HyperbolicKL.bh_tsne()
+            cf_config_params = cf.bh_tsne()
+
         if cf_params is None:
             cf_params = {}
+
         template = {"cf": cf, "cf_config_params": cf_config_params, "cf_params": cf_params, "sequence": []}
         return template
 
 
     @classmethod
-    def sequence_poincare(cls, exaggeration_its=250, exaggeration=12, gradientDescent_its=750,
+    def sequence_poincare(cls, cf=HyperbolicKL, exaggeration_its=250, exaggeration=12, gradientDescent_its=750,
                           n_iter_check=np.inf, threshold_cf=0., threshold_its=-1, threshold_check_size=-1, size_tol=None,
                           learning_rate_ex=0.1, learning_rate_main=0.1, momentum_ex=0.5, momentum=0.8, vanilla=False, exact=True, calc_both=False, angle=0.5,
                           area_split=False, grad_fix=False, grad_scale_fix=False):
         # Start with an empty sequence
-        cf_config_params = HyperbolicKL.exact_tsne() if exact else HyperbolicKL.bh_tsne()
+        cf_config_params = cf.exact_tsne() if exact else cf.bh_tsne()
         cf_config_params["params"]["calc_both"] = calc_both
         cf_config_params["params"]["area_split"] = area_split
         cf_config_params["params"]["grad_fix"] = grad_fix
@@ -236,7 +255,7 @@ class SequentialOptimizer:
         if not exact:
             cf_config_params["params"]["angle"] = angle
 
-        template = SequentialOptimizer.empty_sequence(cf=HyperbolicKL, cf_config_params=cf_config_params)
+        template = SequentialOptimizer.empty_sequence(cf=cf, cf_config_params=cf_config_params)
 
         # Add the blocks necessary for early exaggeration
         template["sequence"] = SequentialOptimizer.add_block_early_exaggeration(
@@ -315,11 +334,13 @@ class SequentialOptimizer:
             matrix, the gradient descent steps, and the de-exaggeration of the V matrix.
         """
         sequence.append({
-                    "type": "processor", "function": SequentialOptimizer.exaggerate_matrix,
+                    "type": "processor", 
+                    "function": SequentialOptimizer.exaggerate_matrix,
                     "params": {"exaggeration": exaggeration}
                 })
         sequence.append({
-                    "type": "solver", "function": gradient_descent,
+                    "type": "solver", 
+                    "function": gradient_descent,
                     "params": {
                         "n_iter": earlyExaggeration_its, "momentum": momentum, "learning_rate": learning_rate,
                         "rescale": rescale, "n_iter_rescale": n_iter_rescale, "gradient_mask": gradient_mask,
@@ -329,7 +350,8 @@ class SequentialOptimizer:
                     }
                 })
         sequence.append({
-                    "type": "processor", "function": SequentialOptimizer.exaggerate_matrix,
+                    "type": "processor", 
+                    "function": SequentialOptimizer.exaggerate_matrix,
                     "params": {"exaggeration": 1/exaggeration}
                 })
         return sequence
@@ -382,7 +404,8 @@ class SequentialOptimizer:
         """
         sequence.append(
             {
-                    "type": "solver", "function": gradient_descent,
+                    "type": "solver", 
+                    "function": gradient_descent,
                     "params": {
                         "n_iter": gradientDescent_its, "momentum": momentum, "learning_rate": learning_rate,
                         "rescale": rescale, "n_iter_rescale": n_iter_rescale, "gradient_mask": gradient_mask,
@@ -404,4 +427,4 @@ class SequentialOptimizer:
         print("    {'type': 'solver', 'function': solverFunction, 'params': {params for solverFunction}}")
         print("    ...")
         print("]")
-        print("==============================================================")
+        print("==============================================================") 

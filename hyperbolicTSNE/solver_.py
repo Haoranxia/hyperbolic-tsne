@@ -14,7 +14,7 @@ from pathlib import Path
 from scipy import linalg
 from tqdm import tqdm
 
-from .cost_functions_ import HyperbolicKL
+from .cost_functions_ import HyperbolicKL, CoSNE
 from .hyperbolic_barnes_hut import tsne
 
 MACHINE_EPSILON = np.finfo(np.double).eps
@@ -22,7 +22,7 @@ MACHINE_EPSILON = np.finfo(np.double).eps
 
 def log_iteration(logging_dict, logging_key, it, y, n_samples, n_components,
                   cf=None, cf_params=None, cf_val=None, grad=None, grad_norm=None, log_arrays=False,
-                  log_arrays_ids=None):
+                  log_arrays_ids=None, grad_log_key="gradients"):
     """
     Log information about an optimization iteration.
 
@@ -88,10 +88,16 @@ def log_iteration(logging_dict, logging_key, it, y, n_samples, n_components,
         Path(log_path + logging_key).mkdir(parents=True, exist_ok=True)
         pd.DataFrame(y).to_csv(log_path + logging_key + "/" + str(it) + ", " + str(cf_val) + ".csv", header=False,
                                index=False)
+        
+        # Store gradient 
+        grad = grad.copy().reshape(n_samples, n_components)
+        Path(log_path + grad_log_key).mkdir(parents=True, exist_ok=True)
+        pd.DataFrame(grad).to_csv(f"{log_path}{grad_log_key}/{it}, {cf_val}.csv", header=False)
 
 
 ##########################################
 # Solver: gradient descent with momentum #
+# TODO: REFACTOR THIS
 ##########################################
 
 def gradient_descent(
@@ -178,22 +184,30 @@ def gradient_descent(
     """
     print("Running Gradient Descent, Verbosity: " + str(verbose))
 
+    #############################
+    # INITIALIZATION AND CHECKS #
+    #############################
     n_samples, n_components = y0.shape
     y = y0.copy().ravel()
+
     if callable(gradient_mask):
         gradient_mask = np.ones(y0.shape).ravel()
     else:
         gradient_mask = np.column_stack((gradient_mask, gradient_mask)).ravel()
+
     gradient_mask_inverse = np.ones(gradient_mask.shape) - gradient_mask
     update = None
     gains = None
+
     if not vanilla:
         update = np.zeros_like(y)
         gains = np.ones_like(y)
+
     error = np.finfo(float).max
     best_error = np.finfo(float).max
     best_iter = 0
     total_its = start_it + n_iter
+
     # Check whether the given rescale value is a float and larger than 0.
     if not (isinstance(rescale, float) or isinstance(rescale, int)) or rescale <= 0.:
         rescale = None
@@ -234,36 +248,52 @@ def gradient_descent(
         tic_l = time()
     # End: logging
 
+    
+
+    #############
+    # MAIN LOOP #
+    #############
+    # Start computing the gradient
     tic = time()
     i = start_it-1
     for i in (pbar := tqdm(range(i+1, total_its), "Gradient Descent")):
+        
+        ########################
+        # GRADIENT COMPUTATION #
+        ########################
         check_convergence = (i + 1) % n_iter_check == 0
         check_threshold = threshold_cf > 0. or threshold_its > 0
+
         # only compute the error when needed
         compute_error = check_convergence or check_threshold or i == n_iter - 1
-
+        
         if compute_error or logging:  # TODO: add different levels of logging to avoid bottlenecks
-            error, grad = cf.obj_grad(y, **cf_params)
+            error, grad = cf.obj_grad(y, **cf_params)       # NOTE: This is where we call the cost function
 
             if isinstance(cf, HyperbolicKL):
-                # New Fix
+                # New Fix; Multiply gradient by inverse metric tensor
                 if grad_scale_fix:
                     grad = ((1. - np.linalg.norm(y.reshape(n_samples, 2), axis=1)
                             ** 2) ** 2)[:, np.newaxis] * grad.reshape(n_samples, 2) / 4
                     grad = grad.flatten()
 
                 grad_norm = linalg.norm(grad)
+
             else:
                 grad_norm = linalg.norm(grad)
+
         else:
             grad = cf.grad(y, **cf_params)
             grad_norm = linalg.norm(grad)
 
+        #####################
+        # GRADIENT UPDATING #
+        #####################
         # Perform the actual gradient descent step
         if isinstance(cf, HyperbolicKL):
+            # Regular gradient descent
             if vanilla:
                 # y = Model.exp_map(y, -learning_rate * grad * gradient_mask, n_samples)
-
                 res = np.empty((n_samples, 2), dtype=ctypes.c_double)
                 tsne.exp_map(y.reshape(n_samples, 2).astype(ctypes.c_double),
                              (-learning_rate * grad * gradient_mask)
@@ -272,6 +302,8 @@ def gradient_descent(
                              res,
                              cf.params["params"]["num_threads"])
                 y = res.ravel()
+
+            # Gradient descent with momentum
             else:
                 inc = update * grad < 0.0
                 dec = np.invert(inc)
@@ -306,6 +338,7 @@ def gradient_descent(
 
         elif vanilla:
             y = y - learning_rate * grad * gradient_mask
+
         else:
             inc = update * grad < 0.0
             dec = np.invert(inc)
@@ -315,15 +348,19 @@ def gradient_descent(
             grad *= gains
             update = momentum * update - learning_rate * grad
             y += update * gradient_mask
-
+    
         pbar.set_description(
             f"Gradient Descent error: {error:.5f} grad_norm: {grad_norm:.5e}")
 
         # If a rescale value has been specified, rescale the embedding now to have the bounding box fit the given value.
         if rescale is not None and i % n_iter_rescale == 0:
             y = (y * gradient_mask_inverse) + ((y * gradient_mask) / (np.sqrt((np.max(
-                y[0::2]) - np.min(y[0::2])) ** 2 + (np.max(y[1::2]) - np.min(y[1::2])) ** 2) / rescale))
+                y[0::2]) - np.min(y[0::2])) ** 2 + (np.max(y[1::2]) - np.min(y[1::2])) ** 2) / rescale))      
 
+
+        ###########
+        # LOGGING #
+        ###########
         # Start:logging
         if logging:
             toc_l = time()
@@ -340,9 +377,13 @@ def gradient_descent(
             tic_l = toc_l
         # End:logging
 
+
+
+        ######################
+        # CONVERGENCE CHECKS #
+        ######################
         # See whether the solver should stop because the given error threshold has been reached
         if check_threshold:
-
             # If a size for evaluation was given ...
             if not threshold_check_size_found and threshold_check_size > 0.:
                 # ... compute the current size and ...
@@ -451,6 +492,7 @@ def gradient_descent(
                     break
                 best_error = error
                 best_iter = i
+
             elif i - best_iter > n_iter_without_progress:
                 if verbose >= 2:
                     print("[t-SNE] Iteration %d: did not make any progress "
@@ -458,6 +500,7 @@ def gradient_descent(
                           % (i + 1, n_iter_without_progress))
                 print("2")
                 break
+
             if grad_norm <= min_grad_norm:
                 if verbose >= 2:
                     print("[t-SNE] Iteration %d: gradient norm %f. Finished."
@@ -465,8 +508,8 @@ def gradient_descent(
                 print("3")
                 break
 
-            emb_point_dists = np.linalg.norm(
-                y.reshape((n_samples, -1)), axis=1).max()
+            emb_point_dists = np.linalg.norm(y.reshape((n_samples, -1)), axis=1).max()
+            
             if size_tol is not None and emb_point_dists > size_tol:
                 if verbose >= 2:
                     print("[t-SNE] Iteration %d: max size %f. Finished." %
@@ -474,4 +517,4 @@ def gradient_descent(
                 print("4")
                 break
 
-    return y.reshape(n_samples, n_components), error, total_its - start_it
+    return y.reshape(n_samples, n_components), error, i - start_it

@@ -11,10 +11,12 @@ import numpy as np
 
 from sklearn.utils._openmp_helpers import _openmp_effective_n_threads
 
-from hyperbolicTSNE.hyperbolic_barnes_hut.tsne import gradient
+from hyperbolicTSNE.hyperbolic_barnes_hut.tsne import gradient, global_hsne_gradient
+
+from numpy import linalg as LA
 
 MACHINE_EPSILON = np.finfo(np.double).eps
-
+COMPUTE_EXACT_GRADIENT = False
 
 def check_params(params):
     """Checks params dict includes supported key-values.
@@ -71,6 +73,10 @@ class HyperbolicKL:
         self.params = other_params
 
         self.results = []
+
+    @classmethod
+    def class_str(cls):
+        return f"HyperbolicKL"
 
     @property
     def params(self):
@@ -252,7 +258,7 @@ class HyperbolicKL:
         neighbors = V.indices.astype(np.int64, copy=False)
         indptr = V.indptr.astype(np.int64, copy=False)
 
-        grad = np.zeros(Y.shape, dtype=ctypes.c_double)
+        grad = np.zeros(Y.shape, dtype=ctypes.c_double)         # shape(n_samples, n_components) - (n_samples, 2) usually
         timings = np.zeros(4, dtype=ctypes.c_float)
         error = gradient(
             timings,
@@ -345,3 +351,214 @@ class HyperbolicKL:
             self.results.append(timings)
 
         return error, grad
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+class CoSNE(HyperbolicKL):
+    """
+    Co-SNE Cost function
+    Is HyperoblicKL + global_term. The global_term is = (1/n) * sum_i ([||x_i||^2 - ||y_i||^2])^2
+    Which describes the difference of norms for the data, and the embedding. The idea is that this
+    captures global structure to some degree.
+
+    NOTE/TODO: Does it actually make sense to have a loss with this global_term that restricts the norms?
+               y_i in D and x_i in R^n, which are not the same type of space at all. This norm comparison
+               thus probably doesn't make sense?
+    """
+    def __init__(self, *, n_components, other_params=None):
+        super().__init__(n_components=n_components, other_params=other_params)
+
+    @classmethod
+    def class_str(cls):
+        return f"CoSNE"
+
+    #########################
+    # User-facing functions #
+    #########################
+    def obj(self, Y, *, V, x_norm, lambda_1, lambda_2, n_samples):
+        obj, _ = self._obj_grad_bh(Y, V, x_norm, lambda_1, lambda_2, n_samples)
+        return obj
+
+    def grad(self, Y, *, V, x_norm, lambda_1, lambda_2, n_samples):
+        _, grad = self._obj_grad_bh(Y, V, x_norm, lambda_1, lambda_2, n_samples)
+        return grad
+
+    def obj_grad(self, Y, *, V, x_norm, lambda_1, lambda_2, n_samples):
+        n_samples = V.shape[0]
+        if self.params["method"] == "exact":       # NOTE: Requires a change in the tsne.pyx file. Doesnt do anything here...
+            obj, grad = self._obj_grad_bh(Y, V, x_norm, lambda_1, lambda_2, n_samples)
+            return obj, grad
+        
+        elif self.params["method"] == "barnes-hut":
+            obj, grad = self._obj_grad_bh(Y, V, x_norm, lambda_1, lambda_2, n_samples)
+
+            return obj, grad
+    
+
+    def _obj_grad_bh(self, Y, V, x_norm, lambda_1, lambda_2, n_samples, save_timings=True):
+        """
+            Parameters
+        ----------
+        Y : ndarray
+            Flattened low dimensional embedding of length: n_samples x n_components.
+        V : ndarray
+            High-dimensional affinity matrix (P matrix in tSNE).
+        n_samples : _type_
+            Number of samples in the embedding.
+        save_timings : bool, optional
+            If True, saves per iteration times, by default True.
+
+        Returns
+        -------
+        ndarray
+            Array (n_samples x n_components) with KL Divergence gradient values.
+        """
+        # Gradient is regular grad + extra term
+
+        # Regular grad part
+        error1, grad1 = super().obj_grad(Y, V=V)
+        #print(grad1.shape, Y.shape, x_norm.shape)
+
+        # Exta term part
+        # error = sum_i -4 * (||x_i||^2 - ||y_i||^2) * y_i
+        # originally Y is flatenned by .ravel()
+        y = Y.reshape(n_samples, self.n_components)         # reshape to (n, 2)
+        y_norm = (y * y).sum(axis=1)                        # y_norm has dim (n,)
+        grad2 = -4 * ((x_norm - y_norm) * y.T).T            
+
+        # grad is [g_1, ...,  g_n] and g_i = -4 * (||x_i||^2 - ||y_i||^2) * y_i
+        error2 = grad2.sum()
+
+        return error1 + error2, (lambda_1 * grad1) + (lambda_2 * grad2).ravel()
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+class GlobalHSNE(HyperbolicKL):
+    def __init__(self, *, n_components, other_params=None):
+        super().__init__(n_components=n_components, other_params=other_params)
+
+    @classmethod
+    def class_str(cls):
+        return f"GlobalHSNE"
+    
+    #########################
+    # User-facing functions #
+    #########################
+    def obj(self, Y, *, V, P_hat, lbda):
+        obj, _ = self._obj_grad_bh(Y, V)
+        return obj
+
+    def grad(self, Y, *, V, P_hat, lbda):
+        _, grad = self._obj_grad_bh(Y, V)
+        return grad
+
+    def obj_grad(self, Y, *, V, P_hat, lbda):
+        n_samples = V.shape[0]
+        if self.params["method"] == "exact":       # NOTE: Requires a change in the tsne.pyx file. Doesnt do anything here...
+            obj, grad = self._obj_grad_bh(Y, V, n_samples=n_samples)
+            return obj, grad
+        
+        elif self.params["method"] == "barnes-hut":
+            obj, grad = self._obj_grad_bh(Y, V, n_samples=n_samples)
+
+            return obj, grad
+    
+
+    def _obj_grad_bh(self, Y, V, P_hat, lbda, n_samples, save_timings=True):
+        """
+            Parameters
+        ----------
+        Y : ndarray
+            Flattened low dimensional embedding of length: n_samples x n_components.
+        V : ndarray
+            High-dimensional affinity matrix (P matrix in tSNE).
+        P_hat : ndarray
+            High dimensional global affinitiy matrix (as defined by global hsne)
+        lbda : float
+            Scalar term for additional gradient component
+        save_timings : bool, optional
+            If True, saves per iteration times, by default True.
+
+        Returns
+        -------
+        ndarray
+            Array (n_samples x n_components) with KL Divergence gradient values.
+        """
+        # Gradient is regular grad + extra term
+        """
+        def global_hsne_gradient(
+             float[:] timings,                  # Array for trackig runtime
+             double[:] val_P,                   # The high dimensional affinity data matrix (in CSR format)
+             double[:, :] pos_output,           # Matrix containing embeddings (embedding)
+             np.int64_t[:] neighbors,           # Column_indices of CSR matrix (for val_P)
+             np.int64_t[:] indptr,              # Row_indices of CSR matrix (for val_P)
+             np.int64_t lbda,                   # Scalar to multiply global gradient term by 
+             double[:] global_P,                # Global affinity data matrix (in CSR format)
+             np.int64_t[:] global_neighbours,   # Column indices of CSR matrix (for global_P)
+             np.int64_t[:] global_indptr,       # Row_indices of CSR matrix (for global_P)
+             double[:, :] forces,               # Matrix to store the forces in per element ij (initially all 0)
+             float theta,                       # Threshold distance to use BH approximation for 
+             int n_dimensions,                  # nr. of dimensions of high data (original high dim. data)
+             int verbose,
+             int dof=1,
+             long skip_num_points=0,
+             bint compute_error=1,
+             int num_threads=1,
+             bint exact=1,
+             bint area_split=0,
+             bint grad_fix=0):
+        """
+        Y = Y.astype(ctypes.c_double, copy=False)
+        Y = Y.reshape(n_samples, self.n_components)
+
+        val_V = V.data
+        neighbors = V.indices.astype(np.int64, copy=False)
+        indptr = V.indptr.astype(np.int64, copy=False)
+
+        grad = np.zeros(Y.shape, dtype=ctypes.c_double)         # shape(n_samples, n_components) - (n_samples, 2) usually
+        timings = np.zeros(4, dtype=ctypes.c_float)
+        error = gradient(
+            timings,
+            val_V, Y, neighbors, indptr, grad,
+            0.5,
+            self.n_components,
+            self.params["params"]["verbose"],
+            dof=self.params["params"]["degrees_of_freedom"],
+            compute_error=True,
+            num_threads=self.params["params"]["num_threads"],
+            exact=True,
+            grad_fix=self.params["params"]["grad_fix"]
+        )
+
+        grad = grad.ravel()
+        grad *= 4
+
+        if save_timings:
+            self.results.append(timings)
+        return error, gradient
