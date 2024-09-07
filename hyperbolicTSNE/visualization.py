@@ -289,7 +289,7 @@ def animate(log_dict, labels, file_name, fast=False, is_hyperbolic=True, plot_ee
             root, ext = os.path.splitext(file)
             if ext == ".csv":
                 total_file = subdir.replace("\\", "/") + "/" + file
-                if (not fast or fi % 10 == 0) and (plot_ee or subdir.split("/")[-1].endswith("1")):
+                if (not fast or fi % 5 == 0) and (plot_ee or subdir.split("/")[-1].endswith("1")):
                     data = np.genfromtxt(total_file, delimiter=',')
                     scatter_data.append((str(fi), data))
 
