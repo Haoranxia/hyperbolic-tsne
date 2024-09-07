@@ -48,10 +48,13 @@ Main purpose is to analyze the behaviour of this method (hyperbolic t-sne with a
 Right now we're only relying on visual judgement
 
 ### TODO Today ###
-1. Create 2 dense clusters of data that are far apart from eachother
-2. Create affinity and distance matrix for this data
-3. Use this data in embedding and record its positions, gradients 
-4. Then look into visualizing, understanding gradients...
+1. Run MNIST, C_elegans experiments.    X
+   HyperbolicKL, BH approx, scale_fix=True, Correct gradient and incorrect gradient
+   - Make sure correct folders are set up       X
+   - Make sure file names are correct           X
+2. Finish implementing global hsne functions (Implement while running experiments)  X
+3. Test global hsne and cosne gradient
+4. Read evaluation metric section of paper
 
 ### TODO Later ###
 1. Run experiments on PC (probably has higher processing power, lets try it)
@@ -77,7 +80,6 @@ To have an effective loss, we need a decently sized high dimensional embedding. 
 
 Another way to tackle this, have only 2 classes, sample 10 points from each, and then randomly initialize, and track iterations. This forces the idea that our initial embedding probably doesn't reflect the higher dimensional one, thus we will converge to something.
 
-- Gradient updates seem to be out of control for the small dataset
-- Few steps till convergence means that the animation isnt good. I need to write an animation function that can update per convergence step (instead of per 10)
-- Perhaps I want to visualize the actual update amount instead of gradient (ie. lr * gradient, or momentum step, etc.. instead of just gradient)
-- Dont use MNIST data, generate a dataset myself with 2 clusters far apart but very dense within
+
+- Think about a proper experimen
+

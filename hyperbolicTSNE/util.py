@@ -61,14 +61,13 @@ def opt_config(cf, learning_rate, exaggeration_factor, ex_iterations, main_itera
     )   
 
 
-def initialize_logger(log_path, grad_path, opt_params, opt_config, only_animate=False):
+def initialize_logger(log_path, opt_params, opt_config, only_animate=False):
     """
     Sets the correct values for the logger keys in the opt_params, opt_config
     dictionaries.
     """
     logging_dict = {
-        "log_path": log_path,
-        "log_grad_path": grad_path,
+        "log_path": log_path
     }
 
     opt_params["logging_dict"] = logging_dict

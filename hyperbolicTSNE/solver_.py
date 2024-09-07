@@ -88,12 +88,11 @@ def log_iteration(logging_dict, logging_key, it, y, n_samples, n_components,
         Path(log_path + logging_key).mkdir(parents=True, exist_ok=True)
         pd.DataFrame(y).to_csv(log_path + logging_key + "/" + str(it) + ", " + str(cf_val) + ".csv", header=False,
                                index=False)
-    
-    log_grad_path = logging_dict.get("log_grad_path", None)
-    if log_grad_path is not None:
+        
+        # Store gradient 
         grad = grad.copy().reshape(n_samples, n_components)
-        Path(log_grad_path + grad_log_key).mkdir(parents=True, exist_ok=True)
-        pd.DataFrame(grad).to_csv(f"{log_grad_path}/{grad_log_key}/{it}, {cf_val}.csv", header=False)
+        Path(log_path + grad_log_key).mkdir(parents=True, exist_ok=True)
+        pd.DataFrame(grad).to_csv(f"{log_path}{grad_log_key}/{it}, {cf_val}.csv", header=False)
 
 
 ##########################################
