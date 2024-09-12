@@ -22,7 +22,7 @@ MACHINE_EPSILON = np.finfo(np.double).eps
 
 def log_iteration(logging_dict, logging_key, it, y, n_samples, n_components,
                   cf=None, cf_params=None, cf_val=None, grad=None, grad_norm=None, log_arrays=False,
-                  log_arrays_ids=None, grad_log_key="gradients"):
+                  log_arrays_ids=None):
     """
     Log information about an optimization iteration.
 
@@ -86,14 +86,13 @@ def log_iteration(logging_dict, logging_key, it, y, n_samples, n_components,
     log_path = logging_dict.get("log_path", None)
     if log_path is not None:
         Path(log_path + logging_key).mkdir(parents=True, exist_ok=True)
-        pd.DataFrame(y).to_csv(log_path + logging_key + "/" + str(it) + ", " + str(cf_val) + ".csv", header=False,
-                               index=False)
+        pd.DataFrame(y).to_csv(f"{log_path}/{logging_key}/{it}, {cf_val}.csv", header=False, index=False)
     
     log_grad_path = logging_dict.get("log_grad_path", None)
     if log_grad_path is not None:
         grad = grad.copy().reshape(n_samples, n_components)
-        Path(log_grad_path + grad_log_key).mkdir(parents=True, exist_ok=True)
-        pd.DataFrame(grad).to_csv(f"{log_grad_path}/{grad_log_key}/{it}, {cf_val}.csv", header=False)
+        Path(log_grad_path + logging_key).mkdir(parents=True, exist_ok=True)
+        pd.DataFrame(grad).to_csv(f"{log_grad_path}/{logging_key}/{it}, {cf_val}.csv", header=False, index=False)
 
 
 ##########################################
@@ -104,7 +103,7 @@ def log_iteration(logging_dict, logging_key, it, y, n_samples, n_components,
 def gradient_descent(
         y0, cf, cf_params, *, start_it=0, n_iter=100, n_iter_check=np.inf, n_iter_without_progress=300,
         threshold_cf=0., threshold_its=-1, threshold_check_size=-1.,
-        momentum=0.8, learning_rate=200.0, min_gain=0.01, vanilla=False, min_grad_norm=1e-7, error_tol=1e-9, size_tol=None,
+        momentum=0.8, learning_rate=200.0, min_gain=0.01, vanilla=False, min_grad_norm=1e-7, error_tol=0, size_tol=None,
         verbose=0, rescale=None, n_iter_rescale=np.inf, gradient_mask=np.ones, grad_scale_fix=False,
         logging_dict=None, logging_key=None,
 ):
@@ -380,9 +379,9 @@ def gradient_descent(
 
 
 
-        ######################
-        # CONVERGENCE CHECKS #
-        ######################
+        ###################################
+        # CONVERGENCE CHECKS COMPUTATIONS #
+        ###################################
         # See whether the solver should stop because the given error threshold has been reached
         if check_threshold:
             # If a size for evaluation was given ...
@@ -472,17 +471,22 @@ def gradient_descent(
             if (threshold_check_size <= 0. or threshold_check_size_found) and (threshold_its <= 0 or threshold_its_found) and (threshold_cf <= 0. or threshold_cf_found):
                 return y.reshape(n_samples, n_components), error, i - start_it
 
+        ######################
+        # CONVERGENCE CHECKS #
+        ######################
         if check_convergence:
             toc = time()
             duration = toc - tic
             tic = toc
-
+            
+            # General convergence 
             if verbose >= 2:
                 print("[t-SNE] Iteration %d: error = %.7f,"
                       " gradient norm = %.7f"
                       " (%s iterations in %0.3fs)"
                       % (i + 1, error, grad_norm, n_iter_check, duration))
 
+            # Error went up instead of down
             if error < best_error:
                 if best_error - error <= error_tol:
                     if verbose >= 2:
@@ -494,6 +498,7 @@ def gradient_descent(
                 best_error = error
                 best_iter = i
 
+            # No progress made in a while so stop
             elif i - best_iter > n_iter_without_progress:
                 if verbose >= 2:
                     print("[t-SNE] Iteration %d: did not make any progress "
@@ -501,16 +506,17 @@ def gradient_descent(
                           % (i + 1, n_iter_without_progress))
                 print("2")
                 break
-
+            
+            # Gradients are too small
             if grad_norm <= min_grad_norm:
                 if verbose >= 2:
                     print("[t-SNE] Iteration %d: gradient norm %f. Finished."
                           % (i + 1, grad_norm))
                 print("3")
                 break
-
-            emb_point_dists = np.linalg.norm(y.reshape((n_samples, -1)), axis=1).max()
             
+            # When embedding points get too close to the edge
+            emb_point_dists = np.linalg.norm(y.reshape((n_samples, -1)), axis=1).max()
             if size_tol is not None and emb_point_dists > size_tol:
                 if verbose >= 2:
                     print("[t-SNE] Iteration %d: max size %f. Finished." %

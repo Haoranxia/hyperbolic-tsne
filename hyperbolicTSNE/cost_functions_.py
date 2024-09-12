@@ -71,7 +71,8 @@ class HyperbolicKL:
             )
         self.n_components = n_components
         self.params = other_params
-
+        # Print whether were using the correct gradient or not
+        # print("Grad Fix: ", self.params["params"]["grad_fix"])          # TODO: Eventually remove
         self.results = []
 
     @classmethod
@@ -143,7 +144,7 @@ class HyperbolicKL:
     # User-facing functions #
     #########################
 
-    def obj(self, Y, *, V):
+    def obj(self, Y, *, V, grad_fix):
         """Calculates the Hyperbolic KL Divergence of a given embedding.
 
         Parameters
@@ -162,10 +163,10 @@ class HyperbolicKL:
         if self.params["method"] == "exact":
             raise NotImplementedError("Exact obj not implemented. Use obj_grad to get exact cost function value.")
         elif self.params["method"] == "barnes-hut":
-            obj, _ = self._obj_bh(Y, V, n_samples)
+            obj, _ = self._obj_bh(Y, V, n_samples, grad_fix)
             return obj
 
-    def grad(self, Y, *, V):
+    def grad(self, Y, *, V, grad_fix):
         """Calculates the gradient of the Hyperbolic KL Divergence of 
         a given embedding.
 
@@ -183,12 +184,12 @@ class HyperbolicKL:
         """
         n_samples = V.shape[0]
         if self.params["method"] == "exact":
-            return self._grad_exact(Y, V, n_samples)
+            return self._grad_exact(Y, V, n_samples, grad_fix)
         elif self.params["method"] == "barnes-hut":
-            _, grad = self._grad_bh(Y, V, n_samples)
+            _, grad = self._grad_bh(Y, V, n_samples, grad_fix)
             return grad
 
-    def obj_grad(self, Y, *, V):
+    def obj_grad(self, Y, *, V, grad_fix):
         """Calculates the Hyperbolic KL Divergence and its gradient 
         of a given embedding.
 
@@ -208,10 +209,10 @@ class HyperbolicKL:
         """
         n_samples = V.shape[0]
         if self.params["method"] == "exact":
-            obj, grad = self._grad_exact(Y, V, n_samples)
+            obj, grad = self._grad_exact(Y, V, n_samples, grad_fix)
             return obj, grad
         elif self.params["method"] == "barnes-hut":
-            obj, grad = self._obj_bh(Y, V, n_samples)
+            obj, grad = self._obj_bh(Y, V, n_samples, grad_fix)
             return obj, grad
 
     ##########################
@@ -232,7 +233,7 @@ class HyperbolicKL:
         """
         pass
 
-    def _grad_exact(self, Y, V, n_samples, save_timings=True):
+    def _grad_exact(self, Y, V, n_samples, grad_fix, save_timings=True):
         """Exact computation of the KL Divergence gradient.
 
         Parameters
@@ -270,7 +271,7 @@ class HyperbolicKL:
             compute_error=True,
             num_threads=self.params["params"]["num_threads"],
             exact=True,
-            grad_fix=self.params["params"]["grad_fix"]
+            grad_fix=grad_fix
         )
 
         grad = grad.ravel()
@@ -281,7 +282,7 @@ class HyperbolicKL:
 
         return error, grad
 
-    def _obj_bh(self, Y, V, n_samples):
+    def _obj_bh(self, Y, V, n_samples, grad_fix):
         """Approximate computation of the KL Divergence.
 
         Parameters
@@ -300,9 +301,9 @@ class HyperbolicKL:
         ndarray
             Array (n_samples x n_components) with KL Divergence gradient values.
         """
-        return self._grad_bh(Y, V, n_samples)
+        return self._grad_bh(Y, V, n_samples, grad_fix)
 
-    def _grad_bh(self, Y, V, n_samples, save_timings=True):
+    def _grad_bh(self, Y, V, n_samples, grad_fix, save_timings=True):
         """Approximate computation of the KL Divergence gradient.
 
         Parameters
@@ -341,7 +342,7 @@ class HyperbolicKL:
             num_threads=self.params["params"]["num_threads"],
             exact=False,
             area_split=self.params["params"]["area_split"],
-            grad_fix=self.params["params"]["grad_fix"]
+            grad_fix=grad_fix
         )
 
         grad = grad.ravel()

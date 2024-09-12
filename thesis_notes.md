@@ -72,14 +72,6 @@ Right now we're only relying on visual judgement
 7. global hsne gradient can be accelerated since the gradient simplifies. Try this too
 
 ### Notes on gradients comparing ###
-- I can't just sample 10 points and then perform sgd. This is because that would not be enough points for the algorithm to run, i.e. the program just converges because the low dimensional embeddings are already good enough since 10 points are easy to embed. 
+- Its hard to compare the gradients of each version per step with eachother. This is because each version definitely has different gradients, so every update step is unique to that version. This makes comparing gradients a bit difficult as gradients are computed with respect to the versions' current positions, which are different.
 
-- Maybe I can try sampling like 1000 points but tracking just a few of them to see what is going on?
-
-To have an effective loss, we need a decently sized high dimensional embedding. Otherwise the gradient would already be in a optima since there's a high chance our initial embedding is already good enough.
-
-Another way to tackle this, have only 2 classes, sample 10 points from each, and then randomly initialize, and track iterations. This forces the idea that our initial embedding probably doesn't reflect the higher dimensional one, thus we will converge to something.
-
-
-- Think about a proper experimen
-
+A potential solution is to come up with artificial sets of points/clusters, with the same positions. And for each version we calculate the gradients (f_attr, f_rep) for them respectively. This will make the gradients much more comparable since they use the same underlying positions. This will also highlight exact differences in gradients

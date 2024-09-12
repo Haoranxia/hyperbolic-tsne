@@ -15,6 +15,9 @@ from cython.parallel cimport prange, parallel
 from libc.string cimport memcpy
 from libc.stdint cimport SIZE_MAX
 
+# For writing data to csvs
+from libc.stdio cimport FILE, fopen, fprintf, fclose
+
 np.import_array()
 
 
@@ -961,6 +964,17 @@ def distance_grad_py(double[:] u, double[:] v, int ax):
 def distance_py(double[:] u, double[:] v):
     return distance(u[0], u[1], v[0], v[1],)
 
+# Function to write array data to a CSV file
+cdef void write_array_to_csv(double* arr, int size, const char* filename) nogil:
+    cdef FILE* file = fopen(filename, "w")
+    if not file:
+        raise OSError("Could not open file for writing")
+
+    cdef int i
+    for i in range(size):
+        fprintf(file, "%.2f\n", arr[i])  # Write each element on a new line
+
+    fclose(file)
 
 #######################################
 # Exact
@@ -1016,6 +1030,13 @@ cdef double exact_compute_gradient(float[:] timings,
         for ax in range(n_dimensions):
             coord = i * n_dimensions + ax
             tot_force[i, ax] = pos_f[coord] - (neg_f[coord] / sQ)
+
+    # Store neg_f and pos_f 
+    # arrays of (n_samples, n_dim) where each entry is the respective force on the node 
+    # corresponding to that entry
+    # size = n_samples * n_dimensions
+    # write_array_to_csv(pos_f, size, "temp/pos_f/pos_f.csv")
+    # write_array_to_csv(neg_f, size, "temp/neg_f/neg_f.csv")
 
     free(neg_f)
     free(pos_f)
@@ -1131,6 +1152,10 @@ cdef double compute_gradient(float[:] timings,
         for ax in range(n_dimensions):
             coord = i * n_dimensions + ax
             tot_force[i, ax] = pos_f[coord] - (neg_f[coord] / sQ)
+    # NOTE: Why neg_f[coord] / sQ? 
+    # neg_f[coord] contains the unnormalized distances. Since we can only normalize after
+    # all the distances have been computed, the normalization factor is only available
+    # at the end of compute_gradient_negative. So we return it and divide it here    
 
     free(neg_f)
     free(pos_f)
@@ -1191,11 +1216,14 @@ cdef double compute_gradient_positive(double[:] val_P,
                 # only compute the error when needed
                 if compute_error:
                     qij = qij / sum_Q
+                    # KL divergence between p and q
                     C += pij * log(max(pij, FLOAT32_TINY) / max(qij, FLOAT32_TINY))
 
                 # For every dimension of the embedding, calculate the force of that dimension
                 for ax in range(n_dimensions):
                     pos_f[i * n_dimensions + ax] += mult * distance_grad(pos_reference[i, 0], pos_reference[i, 1], pos_reference[j, 0], pos_reference[j, 1], ax)
+    
+    # Return the error (KL Divergence)
     return C
 
 
@@ -1347,6 +1375,13 @@ def gradient(float[:] timings,
     if not compute_error:
         C = np.nan
     return C
+
+
+
+
+
+
+
 
 
 

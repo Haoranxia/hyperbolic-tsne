@@ -39,7 +39,7 @@ def find_ith_embedding(log_path, i):
                     return np.genfromtxt(total_file, delimiter=',')
             
 
-def opt_config(cf, learning_rate, exaggeration_factor, ex_iterations, main_iterations, exact, grad_scale_fix=True):
+def opt_config(cf, learning_rate, exaggeration_factor, ex_iterations, main_iterations, exact, grad_scale_fix=True, grad_fix=True):
     """
     Return an opt_config dict with all the parameters set
     """
@@ -58,10 +58,11 @@ def opt_config(cf, learning_rate, exaggeration_factor, ex_iterations, main_itera
         n_iter_check=10,  # Needed for early stopping criterion
         size_tol=0.999,  # Size of the embedding to be used as early stopping criterion
         grad_scale_fix=grad_scale_fix,
+        grad_fix=grad_fix,
     )   
 
 
-def initialize_logger(log_path, grad_path, opt_params, opt_config, only_animate=False):
+def initialize_logger(opt_params, opt_config, log_path=None, grad_path=None, only_animate=False):
     """
     Sets the correct values for the logger keys in the opt_params, opt_config
     dictionaries.
@@ -71,6 +72,7 @@ def initialize_logger(log_path, grad_path, opt_params, opt_config, only_animate=
         "log_grad_path": grad_path,
     }
 
+    # print(opt_params["logging_dict"])
     opt_params["logging_dict"] = logging_dict
 
     log_path = opt_params["logging_dict"]["log_path"]
@@ -79,6 +81,10 @@ def initialize_logger(log_path, grad_path, opt_params, opt_config, only_animate=
         import shutil
         shutil.rmtree(log_path)
     # End: logging
+
+    if os.path.exists(grad_path) and not only_animate:
+        import shutil 
+        shutil.rmtree(grad_path)
 
     print(f"config: {opt_config}")    
     
