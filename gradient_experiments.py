@@ -36,5 +36,5 @@ class GradientComparisons():
 
                 # Save gradients
                 Path(f"{output_folder_path}/correct_grad:{grad_fix}").mkdir(parents=True, exist_ok=True)
-                pd.DataFrame(grad).to_csv(f"{output_folder_path}/correct_grad:{grad_fix}/it:{idx}.csv", header=False, index=False)
+                pd.DataFrame(grad).to_csv(f"{output_folder_path}/correct_grad:{grad_fix}/it:{idx - 1}.csv", header=False, index=False)
 
