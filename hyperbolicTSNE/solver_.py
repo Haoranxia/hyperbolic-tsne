@@ -92,7 +92,7 @@ def log_iteration(logging_dict, logging_key, it, y, n_samples, n_components,
     if log_grad_path is not None:
         grad = grad.copy().reshape(n_samples, n_components)
         Path(log_grad_path + logging_key).mkdir(parents=True, exist_ok=True)
-        pd.DataFrame(grad).to_csv(f"{log_grad_path}/{logging_key}/{it}ß.csv", header=False, index=False)
+        pd.DataFrame(grad).to_csv(f"{log_grad_path}/{logging_key}/{it}.csv", header=False, index=False)
 
 
 ##########################################
