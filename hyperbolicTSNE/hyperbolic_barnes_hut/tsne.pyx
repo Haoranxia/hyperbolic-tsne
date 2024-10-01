@@ -9,7 +9,7 @@
 import numpy as np
 cimport numpy as np
 from libc.stdio cimport printf
-from libc.math cimport sqrt, log, acosh, cosh, cos, sin, M_PI, atan2, tanh, atanh, isnan, fabs, fmin, fmax
+from libc.math cimport sqrt, log, acosh, cosh, cos, sin, M_PI, atan2, tanh, atanh, isnan, fabs, fmin, fmax, exp
 from libc.stdlib cimport malloc, free, realloc
 from cython.parallel cimport prange, parallel
 from libc.string cimport memcpy
@@ -976,6 +976,30 @@ cdef void write_array_to_csv(double* arr, int size, const char* filename) nogil:
 
     fclose(file)
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 #######################################
 # Exact
 #######################################
@@ -1096,6 +1120,24 @@ cdef double exact_compute_gradient_negative(double[:, :] pos_reference,
     # Put sum_Q to machine EPSILON to avoid divisions by 0
     sum_Q = max(sum_Q, FLOAT64_EPS)
     return sum_Q
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 #####################################################
 # Grad
@@ -1375,6 +1417,211 @@ def gradient(float[:] timings,
     if not compute_error:
         C = np.nan
     return C
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#####################
+# GAUSSIAN GRADIENT #
+#####################
+def gaussian_gradient(float[:] timings,
+             double[:] val_P,
+             double[:, :] pos_output,
+             np.int64_t[:] neighbors,
+             np.int64_t[:] indptr,
+             double[:, :] forces,
+             float theta,
+             int n_dimensions,
+             int verbose,
+             int dof=1,
+             long skip_num_points=0,
+             bint compute_error=1,
+             int num_threads=1,
+             bint exact=1,
+             bint area_split=0,
+             bint grad_fix=0,
+             int var=1):
+    cdef double C
+    cdef int n
+    cdef _QuadTree qt = _QuadTree(pos_output.shape[1], verbose)
+    cdef clock_t t1 = 0, t2 = 0
+
+    global AREA_SPLIT
+    AREA_SPLIT = area_split
+
+    global GRAD_FIX
+    GRAD_FIX = grad_fix
+
+    if not exact:
+        if TAKE_TIMING:
+            t1 = clock()
+
+        qt.build_tree(pos_output)
+
+        if TAKE_TIMING:
+            t2 = clock()
+            timings[0] = ((float) (t2 - t1)) / CLOCKS_PER_SEC
+
+    if TAKE_TIMING:
+        t1 = clock()
+
+    # NOTE: Only exact gradient currently implemented
+    C = exact_gaussian_gradient(
+                            timings, val_P, pos_output, neighbors, indptr, forces,
+                            qt, theta, dof, skip_num_points, -1, compute_error,
+                            num_threads, var)
+
+    if TAKE_TIMING:
+        t2 = clock()
+        timings[1] = ((float) (t2 - t1)) / CLOCKS_PER_SEC
+
+    if not compute_error:
+        C = np.nan
+
+    return C       
+
+
+cdef double exact_gaussian_gradient(float[:] timings,
+                            double[:] val_P,
+                            double[:, :] pos_reference,
+                            np.int64_t[:] neighbors,
+                            np.int64_t[:] indptr,
+                            double[:, :] tot_force,
+                            _QuadTree qt,
+                            float theta,
+                            int dof,
+                            long start,
+                            long stop,
+                            bint compute_error,
+                            int num_threads, 
+                            int var) nogil:
+    # Having created the tree, calculate the gradient
+    # in two components, the positive and negative forces
+    cdef:
+        long i, coord
+        int ax
+        long n_samples = pos_reference.shape[0]
+        int n_dimensions = qt.n_dimensions
+        double sQ
+        double error
+        clock_t t1 = 0, t2 = 0
+
+    cdef double* neg_f = <double*> malloc(sizeof(double) * n_samples * n_dimensions)
+    cdef double* pos_f = <double*> malloc(sizeof(double) * n_samples * n_dimensions)
+
+    if TAKE_TIMING:
+        t1 = clock()
+
+    sQ = compute_gaussian_gradient_negative(pos_reference, neighbors, indptr, 
+                                            neg_f, qt, dof, theta, start,
+                                            stop, num_threads, var)
+
+    if TAKE_TIMING:
+        t2 = clock()
+        timings[2] = ((float) (t2 - t1)) / CLOCKS_PER_SEC
+
+    if TAKE_TIMING:
+        t1 = clock()
+
+    error = compute_gradient_positive(val_P, pos_reference, neighbors, indptr,
+                                      pos_f, n_dimensions, dof, sQ, start,
+                                      qt.verbose, compute_error, num_threads)
+
+    if TAKE_TIMING:
+        t2 = clock()
+        timings[3] = ((float) (t2 - t1)) / CLOCKS_PER_SEC
+
+    for i in prange(start, n_samples, nogil=True, num_threads=num_threads, schedule='static'):
+        for ax in range(n_dimensions):
+            coord = i * n_dimensions + ax
+            tot_force[i, ax] = pos_f[coord] - (neg_f[coord] / sQ)
+    # NOTE: Why neg_f[coord] / sQ? 
+    # neg_f[coord] contains the unnormalized distances. Since we can only normalize after
+    # all the distances have been computed, the normalization factor is only available
+    # at the end of compute_gradient_negative. So we return it and divide it here    
+
+    free(neg_f)
+    free(pos_f)
+    return error
+
+
+cdef double compute_gaussian_gradient_negative(double[:, :] pos_reference,
+                                      np.int64_t[:] neighbors,
+                                      np.int64_t[:] indptr,
+                                      double* neg_f,
+                                      _QuadTree qt,
+                                      int dof,
+                                      float theta,
+                                      long start,
+                                      long stop,
+                                      int num_threads, 
+                                      int var) nogil:
+    cdef:
+        int ax
+        int n_dimensions = qt.n_dimensions
+        int offset = n_dimensions + 2
+        long i, j, k, idx
+        long n = stop - start
+        long dta = 0
+        long dtb = 0
+        double size, dist2s, mult
+        double qijZ, sum_Q = 0.0
+        long n_samples = indptr.shape[0] - 1
+        double dij, qij, dij_sq
+
+    with nogil, parallel(num_threads=num_threads):
+        for i in prange(start, n_samples, schedule='static'):
+            # Init the gradient vector
+            for ax in range(n_dimensions):
+                neg_f[i * n_dimensions + ax] = 0.0
+
+            for j in range(start, n_samples):
+                if i == j:
+                    continue
+                dij = distance(pos_reference[i, 0], pos_reference[i, 1], pos_reference[j, 0], pos_reference[j, 1])
+                dij_sq = dij * dij
+
+                # qij = 1. / (1. + dij_sq)    # CHANGE
+                qij = exp(-(dij_sq / (2 * var)))
+                mult = qij * qij * dij
+
+                sum_Q += qij
+                for ax in range(n_dimensions):
+                    neg_f[i * n_dimensions + ax] += mult * distance_grad(pos_reference[i, 0], pos_reference[i, 1], pos_reference[j, 0], pos_reference[j, 1], ax)
+
+    # Put sum_Q to machine EPSILON to avoid divisions by 0
+    sum_Q = max(sum_Q, FLOAT64_EPS)
+    return sum_Q
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -11,7 +11,7 @@ import numpy as np
 
 from sklearn.utils._openmp_helpers import _openmp_effective_n_threads
 
-from hyperbolicTSNE.hyperbolic_barnes_hut.tsne import gradient, global_hsne_gradient
+from hyperbolicTSNE.hyperbolic_barnes_hut.tsne import gradient, global_hsne_gradient, gaussian_gradient
 
 from numpy import linalg as LA
 
@@ -563,3 +563,76 @@ class GlobalHSNE(HyperbolicKL):
         if save_timings:
             self.results.append(timings)
         return error, gradient
+    
+
+
+class GaussianKL(HyperbolicKL):
+    def __init__(self, *, n_components, other_params=None):
+        super().__init__(n_components=n_components, other_params=other_params)
+
+    @classmethod
+    def class_str(cls):
+        return f"GaussianKL"
+    
+    def obj_grad(self, Y, *, V, grad_fix, var):
+        """Calculates the Hyperbolic KL Divergence and its gradient 
+        of a given embedding.
+
+        Parameters
+        ----------
+        Y : ndarray
+            Flattened low dimensional embedding of length: n_samples x n_components.
+        V : ndarray
+            High-dimensional affinity matrix (P matrix in tSNE).
+
+        Returns
+        -------
+        float
+            KL Divergence value.
+        ndarray
+            Array (n_samples x n_components) with KL Divergence gradient values.
+        """
+        n_samples = V.shape[0]
+        if self.params["method"] == "exact":
+            obj, grad = self._grad_exact(Y, V, n_samples, grad_fix, var)
+            return obj, grad
+        elif self.params["method"] == "barnes-hut":
+            obj, grad = self._obj_bh(Y, V, n_samples, grad_fix, var)
+            return obj, grad
+        
+        
+    def _grad_exact(self, Y, V, n_samples, grad_fix, var, save_timings=True):
+        Y = Y.astype(ctypes.c_double, copy=False)
+        Y = Y.reshape(n_samples, self.n_components)
+
+        val_V = V.data
+        neighbors = V.indices.astype(np.int64, copy=False)
+        indptr = V.indptr.astype(np.int64, copy=False)
+
+        grad = np.zeros(Y.shape, dtype=ctypes.c_double)         # shape(n_samples, n_components) - (n_samples, 2) usually
+        timings = np.zeros(4, dtype=ctypes.c_float)
+        error = gaussian_gradient(
+            timings,
+            val_V, Y, neighbors, indptr, grad,
+            0.5,
+            self.n_components,
+            self.params["params"]["verbose"],
+            dof=self.params["params"]["degrees_of_freedom"],
+            compute_error=True,
+            num_threads=self.params["params"]["num_threads"],
+            exact=True,
+            grad_fix=grad_fix,
+            var=var
+        )
+
+        grad = grad.ravel()
+        grad *= 4
+
+        if save_timings:
+            self.results.append(timings)
+
+        return error, grad
+
+
+    def _grad_bh(self, Y, V, n_samples, grad_fix, save_timings=True):
+        pass 
