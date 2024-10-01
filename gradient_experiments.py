@@ -25,7 +25,10 @@ class GradientComparisons():
         # There may be multiple optimization steps, resulting in multiple folders
         for folder in self.folder_path.iterdir():
             # Loop over the different optimizer outputs
-            for idx, embedding_file_path in enumerate(folder.iterdir()):
+            # Make sure to sort the files in the folder by iteration so the 
+            # correct embedding iterations match the gradient iterations
+            files = sorted(folder.iterdir(), key=lambda file: int(file.name.split(".")[0]))
+            for idx, embedding_file_path in enumerate(files):
                 # Read file content as embedding (Y)
                 # Y - (n_samples, n_dim) 
                 Y = np.loadtxt(str(embedding_file_path), delimiter=',')
@@ -36,5 +39,5 @@ class GradientComparisons():
 
                 # Save gradients
                 Path(f"{output_folder_path}/correct_grad_{grad_fix}").mkdir(parents=True, exist_ok=True)
-                pd.DataFrame(grad).to_csv(f"{output_folder_path}/correct_grad_{grad_fix}/it_{idx - 1}.csv", header=False, index=False)
+                pd.DataFrame(grad).to_csv(f"{output_folder_path}/correct_grad_{grad_fix}/{idx - 1}.csv", header=False, index=False)#
 
