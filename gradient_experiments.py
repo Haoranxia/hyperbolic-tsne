@@ -21,7 +21,7 @@ class GradientComparisons():
         self.cf = cf                # Cost function object (initialized)
         self.key = key              # Key to uniquely identify this experiment (used for saving results)
     
-    def compute_gradients(self, V, grad_fix, output_folder_path):        
+    def compute_gradients(self, V, grad_fix, output_folder_path, **kwargs):        
         # There may be multiple optimization steps, resulting in multiple folders
         for folder in self.folder_path.iterdir():
             # Loop over the different optimizer outputs
@@ -34,7 +34,7 @@ class GradientComparisons():
                 Y = np.loadtxt(str(embedding_file_path), delimiter=',')
 
                 # Compute gradient per file
-                error, grad = self.cf.obj_grad(Y, V=V, grad_fix=grad_fix)
+                error, grad = self.cf.obj_grad(Y, V=V, grad_fix=grad_fix, **kwargs)
                 grad = grad.reshape(V.shape[0], self.cf.n_components)
 
                 # Save gradients

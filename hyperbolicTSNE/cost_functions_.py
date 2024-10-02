@@ -566,6 +566,16 @@ class GlobalHSNE(HyperbolicKL):
     
 
 
+
+
+
+
+
+
+
+
+
+
 class GaussianKL(HyperbolicKL):
     def __init__(self, *, n_components, other_params=None):
         super().__init__(n_components=n_components, other_params=other_params)
