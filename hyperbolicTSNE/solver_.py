@@ -101,7 +101,7 @@ def log_iteration(logging_dict, logging_key, it, y, n_samples, n_components,
 ##########################################
 
 def gradient_descent(
-        y0, cf, cf_params, *, start_it=0, n_iter=100, n_iter_check=np.inf, n_iter_without_progress=300,
+        y0, cf, cf_params, *, start_it=0, n_iter=100, n_iter_check=np.inf, n_iter_without_progress=500,
         threshold_cf=0., threshold_its=-1, threshold_check_size=-1.,
         momentum=0.8, learning_rate=200.0, min_gain=0.01, vanilla=False, min_grad_norm=1e-7, error_tol=0, size_tol=None,
         verbose=0, rescale=None, n_iter_rescale=np.inf, gradient_mask=np.ones, grad_scale_fix=False,
@@ -198,10 +198,13 @@ def gradient_descent(
     gradient_mask_inverse = np.ones(gradient_mask.shape) - gradient_mask
     update = None
     gains = None
-
+    velocities = None
     if not vanilla:
-        update = np.zeros_like(y)
-        gains = np.ones_like(y)
+        # update = np.zeros_like(y)
+        # gains = np.ones_like(y)
+
+        # NOTE: y is flattened through .ravel(). We assume everything is a flattened array
+        velocities = np.zeros_like(y)       # momentum velocities
 
     error = np.finfo(float).max
     best_error = np.finfo(float).max
@@ -250,6 +253,11 @@ def gradient_descent(
 
     
 
+
+
+
+
+
     #############
     # MAIN LOOP #
     #############
@@ -257,7 +265,6 @@ def gradient_descent(
     tic = time()
     i = start_it-1
     for i in (pbar := tqdm(range(i+1, total_its), "Gradient Descent")):
-        
         ########################
         # GRADIENT COMPUTATION #
         ########################
@@ -277,7 +284,12 @@ def gradient_descent(
                             ** 2) ** 2)[:, np.newaxis] * grad.reshape(n_samples, 2) / 4
                     grad = grad.flatten()
 
-                grad_norm = linalg.norm(grad)
+                try:
+                    grad_norm = linalg.norm(grad)
+                except ValueError:
+                    print(y)
+                    print(grad)
+                    break 
 
             else:
                 grad_norm = linalg.norm(grad)
@@ -285,6 +297,14 @@ def gradient_descent(
         else:
             grad = cf.grad(y, **cf_params)
             grad_norm = linalg.norm(grad)
+
+
+
+
+
+
+
+
 
         #####################
         # GRADIENT UPDATING #
@@ -305,40 +325,69 @@ def gradient_descent(
 
             # Gradient descent with momentum
             else:
-                inc = update * grad < 0.0
-                dec = np.invert(inc)
-                gains[inc] += 0.2
-                gains[dec] *= 0.8
-                np.clip(gains, min_gain, np.inf, out=gains)
-                grad *= gains
-                update = momentum * update - learning_rate * grad
-                # y = Model.exp_map(y, update * gradient_mask, n_samples)
+            #     inc = update * grad < 0.0
+            #     dec = np.invert(inc)
+            #     gains[inc] += 0.2
+            #     gains[dec] *= 0.8
+            #     np.clip(gains, min_gain, np.inf, out=gains)
+            #     grad *= gains
+            #     update = momentum * update - learning_rate * grad
+            #     # y = Model.exp_map(y, update * gradient_mask, n_samples)
+            #     res_exp = np.empty((n_samples, 2), dtype=ctypes.c_double)
+            #     tsne.exp_map(y.reshape(n_samples, 2).astype(ctypes.c_double),
+            #                  (update * gradient_mask)
+            #                  .reshape(n_samples, 2)
+            #                  .astype(ctypes.c_double),
+            #                  res_exp,
+            #                  cf.params["params"]["num_threads"])
+
+            #     res_log = np.empty((n_samples, 2), dtype=ctypes.c_double)
+            #     tsne.log_map(res_exp,
+            #                  y.reshape(n_samples, 2).astype(ctypes.c_double),
+            #                  res_log,
+            #                  cf.params["params"]["num_threads"])
+            #     y = res_exp.ravel()
+
+            #     update = res_log.ravel() * -1
+
+            # res_constrain = np.empty((n_samples, 2), dtype=ctypes.c_double)
+            # tsne.constrain(y.reshape(n_samples, 2).astype(ctypes.c_double),
+            #                res_constrain,
+            #                cf.params["params"]["num_threads"])
+            # y = res_constrain.ravel()
+
+                # TODO: (my own) Compute momentum #
+                # We have access to grad, velocities
+                # new velocities = gamma * old velocities + eta * gradient
+                # We perofrm the operations in-place
+                velocities *= momentum                  # exponential averaging
+                velocities -= learning_rate * grad      # add latest gradient term
+
+                # Exponenial map. Map euclidean update to hyperbolic space#
                 res_exp = np.empty((n_samples, 2), dtype=ctypes.c_double)
-                tsne.exp_map(y.reshape(n_samples, 2).astype(ctypes.c_double),
-                             (update * gradient_mask)
-                             .reshape(n_samples, 2)
-                             .astype(ctypes.c_double),
-                             res_exp,
-                             cf.params["params"]["num_threads"])
-
-                res_log = np.empty((n_samples, 2), dtype=ctypes.c_double)
-                tsne.log_map(res_exp,
-                             y.reshape(n_samples, 2).astype(ctypes.c_double),
-                             res_log,
-                             cf.params["params"]["num_threads"])
+                tsne.exp_map(
+                    y.reshape(n_samples, 2).astype(ctypes.c_double),
+                    (velocities * gradient_mask).reshape(n_samples, 2).astype(ctypes.c_double),
+                    res_exp,
+                    cf.params["params"]["num_threads"]
+                )
                 y = res_exp.ravel()
+                
 
-                update = res_log.ravel() * -1
-
+            # Constrain if we overeshoot boundaries
             res_constrain = np.empty((n_samples, 2), dtype=ctypes.c_double)
-            tsne.constrain(y.reshape(n_samples, 2).astype(ctypes.c_double),
-                           res_constrain,
-                           cf.params["params"]["num_threads"])
+            tsne.constrain(
+                y.reshape(n_samples, 2).astype(ctypes.c_double),
+                res_constrain,
+                cf.params["params"]["num_threads"]
+            )
             y = res_constrain.ravel()
-
+        
+        # No exponential map, euclidean gradient descent
         elif vanilla:
             y = y - learning_rate * grad * gradient_mask
 
+        # No exponential map, euclidean momentum
         else:
             inc = update * grad < 0.0
             dec = np.invert(inc)
@@ -348,6 +397,7 @@ def gradient_descent(
             grad *= gains
             update = momentum * update - learning_rate * grad
             y += update * gradient_mask
+
     
         pbar.set_description(
             f"Gradient Descent error: {error:.5f} grad_norm: {grad_norm:.5e}")
@@ -356,6 +406,15 @@ def gradient_descent(
         if rescale is not None and i % n_iter_rescale == 0:
             y = (y * gradient_mask_inverse) + ((y * gradient_mask) / (np.sqrt((np.max(
                 y[0::2]) - np.min(y[0::2])) ** 2 + (np.max(y[1::2]) - np.min(y[1::2])) ** 2) / rescale))      
+
+        # TODO: Remove; Check for NaNs 
+        if True in np.isnan(y):
+            print("Nan in y")
+            print(y)
+
+
+
+
 
 
         ###########
@@ -376,6 +435,11 @@ def gradient_descent(
                           log_arrays=log_arrays, log_arrays_ids=log_arrays_ids)
             tic_l = toc_l
         # End:logging
+
+
+
+
+
 
 
 
@@ -470,6 +534,13 @@ def gradient_descent(
                 )
             if (threshold_check_size <= 0. or threshold_check_size_found) and (threshold_its <= 0 or threshold_its_found) and (threshold_cf <= 0. or threshold_cf_found):
                 return y.reshape(n_samples, n_components), error, i - start_it
+
+
+
+
+
+
+
 
         ######################
         # CONVERGENCE CHECKS #

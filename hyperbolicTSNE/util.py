@@ -1,5 +1,6 @@
 import os
 import csv
+import json
 import numpy as np
 from hyperbolicTSNE.visualization import plot_poincare, animate
 from pathlib import Path
@@ -12,7 +13,7 @@ def find_last_embedding(log_path):
         files = [f for f in files if not f[0] == '.']
         dirs[:] = [d for d in dirs if not d[0] == '.']
 
-        for fi, file in enumerate(reversed(sorted(files, key=lambda x: int(x.split(", ")[0])))):
+        for fi, file in enumerate(reversed(sorted(files, key=lambda x: int(x.split(".")[0])))):
             root, ext = os.path.splitext(file)
             if ext == ".csv":
                 total_file = subdir.replace("\\", "/") + "/" + file
@@ -39,7 +40,7 @@ def find_ith_embedding(log_path, i):
                     return np.genfromtxt(total_file, delimiter=',')
             
 
-def opt_config(cf, learning_rate, exaggeration_factor, ex_iterations, main_iterations, exact, grad_scale_fix=True, grad_fix=True):
+def opt_config(cf, learning_rate, exaggeration_factor, ex_iterations, main_iterations, exact, vanilla=True, grad_scale_fix=True, grad_fix=True):
     """
     Return an opt_config dict with all the parameters set
     """
@@ -50,12 +51,12 @@ def opt_config(cf, learning_rate, exaggeration_factor, ex_iterations, main_itera
         exaggeration=exaggeration_factor, 
         exaggeration_its=ex_iterations, 
         gradientDescent_its=main_iterations, 
-        vanilla=False,  # if vanilla is set to true, regular gradient descent without any modifications is performed; for  vanilla set to false, the optimization makes use of momentum and gains
+        vanilla=vanilla,  # if vanilla is set to true, regular gradient descent without any modifications is performed; for  vanilla set to false, the optimization makes use of momentum and gains
         momentum_ex=0.5,  # Set momentum during early exaggeration to 0.5
-        momentum=0.8,  # Set momentum during non-exaggerated gradient descent to 0.8
+        momentum=0.2,  # Set momentum during non-exaggerated gradient descent to 0.8
         exact=exact,  # To use the quad tree for acceleration (like Barnes-Hut in the Euclidean setting) or to evaluate the gradient exactly
         area_split=False,  # To build or not build the polar quad tree based on equal area splitting or - alternatively - on equal length splitting
-        n_iter_check=10,  # Needed for early stopping criterion
+        n_iter_check=1000,  # Needed for early stopping criterion
         size_tol=0.999,  # Size of the embedding to be used as early stopping criterion
         grad_scale_fix=grad_scale_fix,
         grad_fix=grad_fix,
@@ -132,3 +133,35 @@ def store_visuals(hyperbolicEmbedding, dataLabels, save_folder, file_name, opt_p
 
     # Save animation
     animate(opt_params["logging_dict"], dataLabels, f"{file_name}.gif", fast=True, plot_ee=True)
+
+
+def save_experiment_results(save_folder, data_fig, emb_fig, opt_params, dataLabels, exp_data, step=10):
+    """
+    save_folder:        general folder to save results to
+    data_fig:           original data pyplot figure
+    emb_fig:            embedding data pyplot figure
+    opt_params:
+    dataLabels:
+    exp_data:
+    """
+    # Create folder for storing results
+    Path(f"{save_folder}").mkdir(parents=True, exist_ok=True)
+
+    # Create data plot & save
+    if data_fig is not None:
+        data_fig.savefig(save_folder + "/data.png")
+        data_fig.tight_layout()
+
+    # Create emb. plot & save
+    if emb_fig is not None:
+        emb_fig.savefig(save_folder+ "/emb.png")
+        emb_fig.tight_layout()
+
+    # Create emb. animation & save
+    file_name = save_folder + "/emb_anim.gif"
+    animate(opt_params["logging_dict"], dataLabels, file_name, fast=True, plot_ee=True, step=step)
+
+    # Store experiment data in csv
+    with open(save_folder + "data.json", 'w') as f:
+        json.dump(exp_data, f)
+

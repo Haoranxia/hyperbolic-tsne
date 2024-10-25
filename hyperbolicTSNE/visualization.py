@@ -15,10 +15,10 @@ from tqdm import tqdm
 from hyperbolicTSNE import Datasets
 
 
-def plot_poincare(points, labels=None):
+def plot_poincare(points, colors=None, labels=None):
     fig, ax = plt.subplots()
     ax.scatter(points[:, 0], points[:, 1],
-               c=labels,
+               c=colors,
                marker=".",
                cmap="tab10")
     ax.add_patch(plt.Circle((0, 0), radius=1, edgecolor="b", facecolor="None"))
@@ -282,14 +282,14 @@ def plot_poincare_zoomed(points, labels=None):
     return fig
 
 
-def animate(log_dict, labels, file_name, fast=False, is_hyperbolic=True, plot_ee=False, first_frame=None):
+def animate(log_dict, labels, file_name, fast=False, is_hyperbolic=True, plot_ee=False, first_frame=None, step=10):
     scatter_data = [] if first_frame is None else [("-1", first_frame)]
     for subdir, dirs, files in os.walk(log_dict["log_path"]):
         for fi, file in enumerate(sorted(files, key=lambda x: int(x.split(".")[0]))):
             root, ext = os.path.splitext(file)
             if ext == ".csv":
                 total_file = subdir.replace("\\", "/") + "/" + file
-                if (not fast or fi % 5 == 0) and (plot_ee or subdir.split("/")[-1].endswith("1")):
+                if (not fast or fi % step == 0) and (plot_ee or subdir.split("/")[-1].endswith("1")):
                     data = np.genfromtxt(total_file, delimiter=',')
                     scatter_data.append((str(fi), data))
 

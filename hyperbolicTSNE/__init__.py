@@ -4,3 +4,4 @@ from .cost_functions_ import HyperbolicKL
 from .optimizer_ import SequentialOptimizer
 from .initializations_ import initialization
 from .data_loaders import load_data, Datasets
+from .util import opt_config, initialize_logger, save_experiment_results
