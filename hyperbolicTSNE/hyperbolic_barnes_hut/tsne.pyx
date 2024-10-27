@@ -1588,7 +1588,7 @@ cdef double exact_gaussian_gradient(float[:] timings,
     for i in prange(start, n_samples, nogil=True, num_threads=num_threads, schedule='static'):
         for ax in range(n_dimensions):
             coord = i * n_dimensions + ax
-            tot_force[i, ax] =  (-2 / var) * (pos_f[coord] - (neg_f[coord] / sQ))
+            tot_force[i, ax] =  (2 / var) * (pos_f[coord] - (neg_f[coord] / sQ))
     # NOTE: Why neg_f[coord] / sQ? 
     # neg_f[coord] contains the unnormalized distances. Since we can only normalize after
     # all the distances have been computed, the normalization factor is only available
