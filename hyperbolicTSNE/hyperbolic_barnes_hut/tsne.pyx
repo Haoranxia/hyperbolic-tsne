@@ -1704,7 +1704,7 @@ cdef double compute_gaussian_gradient_positive(double[:] val_P,
 
                 # only compute the error when needed
                 if compute_error:
-                    qij = exp(-dij_sq / (2 * var)) 
+                    qij = exp(-(dij * dij) / (2 * var)) 
                     qij = qij / sum_Q                                                   # normalize gaussian distance (obtain probabilities)
                     C += pij * log(max(pij, FLOAT32_TINY) / max(qij, FLOAT32_TINY))     # KL divergence between p and q
 
