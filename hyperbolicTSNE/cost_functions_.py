@@ -617,11 +617,11 @@ class GaussianKL(HyperbolicKL):
             obj, grad = self._grad_exact(Y, V, n_samples, grad_fix, var)
             return obj, grad
         elif self.params["method"] == "barnes-hut":
-            obj, grad = self._obj_bh(Y, V, n_samples, grad_fix, var)
+            obj, grad = self._grad_bh(Y, V, n_samples, grad_fix, var)
             return obj, grad
         
         
-    def _grad_exact(self, Y, V, n_samples, grad_fix, var, save_timings=True):
+    def _grad_exact(self, Y, V, n_samples, grad_fix, var, exact=True, save_timings=True):
         Y = Y.astype(ctypes.c_double, copy=False)
         Y = Y.reshape(n_samples, self.n_components)
 
@@ -631,6 +631,7 @@ class GaussianKL(HyperbolicKL):
 
         grad = np.zeros(Y.shape, dtype=ctypes.c_double)         # shape(n_samples, n_components) - (n_samples, 2) usually
         timings = np.zeros(4, dtype=ctypes.c_float)
+
         error = gaussian_gradient(
             timings,
             val_V, Y, neighbors, indptr, grad,
@@ -640,7 +641,7 @@ class GaussianKL(HyperbolicKL):
             dof=self.params["params"]["degrees_of_freedom"],
             compute_error=True,
             num_threads=self.params["params"]["num_threads"],
-            exact=True,
+            exact=exact,
             grad_fix=grad_fix,
             var=var
         )
@@ -654,5 +655,5 @@ class GaussianKL(HyperbolicKL):
         return error, grad
 
 
-    def _grad_bh(self, Y, V, n_samples, grad_fix, save_timings=True):
-        pass 
+    def _grad_bh(self, Y, V, n_samples, grad_fix, var, save_timings=True):
+        return self._grad_exact(Y, V, n_samples, grad_fix, var, exact=False)

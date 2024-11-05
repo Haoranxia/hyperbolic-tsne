@@ -276,6 +276,10 @@ def gradient_descent(
         
         if compute_error or logging:  # TODO: add different levels of logging to avoid bottlenecks
             error, grad = cf.obj_grad(y, **cf_params)       # NOTE: This is where we call the cost function
+            # print(grad)
+            if np.isinf(grad).any():
+                print("Infinity in grad")
+                print(grad)
 
             if isinstance(cf, HyperbolicKL):
                 # New Fix; Multiply gradient by inverse metric tensor
@@ -287,7 +291,8 @@ def gradient_descent(
                 try:
                     grad_norm = linalg.norm(grad)
                 except ValueError:
-                    print(y)
+                    print(f"Produced value error in grad_norm computation at iteration:{i}")
+                    # print(y)
                     print(grad)
                     break 
 

@@ -596,8 +596,9 @@ cdef class _QuadTree:
                 This is useful in t-SNE to compute the negative forces.
             - result[idx+n_dimensions+1] contains the squared euclidean
                 distance to the summary cell idx.
-            - result[idx+n_dimensions+2] contains the number of point of the
-                tree contained in the summary cell idx.
+            - result[idx+n_dimensions+2] contains the number of points of the
+                (sub)tree contained in the summary cell idx. (i.e. how many points
+                are summarized in this cell)
 
         Return
         ------
@@ -1030,7 +1031,7 @@ cdef void write_array_to_csv(double* arr, int size, const char* filename) nogil:
 
 
 #######################################
-# Exact
+# Exact hyperoblic t-sne gradient 
 #######################################
 cdef double exact_compute_gradient(float[:] timings,
                             double[:] val_P,
@@ -1096,7 +1097,7 @@ cdef double exact_compute_gradient(float[:] timings,
     return error
 
 #######################################
-# Exact Negative
+# Exact hyperbolic t-sne Negative term
 #######################################
 cdef double exact_compute_gradient_negative(double[:, :] pos_reference,
                                       np.int64_t[:] neighbors,
@@ -1150,26 +1151,8 @@ cdef double exact_compute_gradient_negative(double[:, :] pos_reference,
     sum_Q = max(sum_Q, FLOAT64_EPS)
     return sum_Q
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 #####################################################
-# Grad
+# BH hyperbolic t-sne gradient
 #####################################################
 cdef double compute_gradient(float[:] timings,
                             double[:] val_P,
@@ -1200,8 +1183,7 @@ cdef double compute_gradient(float[:] timings,
 
     if TAKE_TIMING:
         t1 = clock()
-    # sQ = compute_gradient_negative(pos_reference, neighbors, indptr, neg_f, qt, dof, theta, start,
-    #                                stop, num_threads)
+
     sQ = compute_gradient_negative(pos_reference, neg_f, qt, dof, theta, start,
                                    stop, num_threads)
     if TAKE_TIMING:
@@ -1232,6 +1214,9 @@ cdef double compute_gradient(float[:] timings,
     free(pos_f)
     return error
 
+#####################################################
+# BH hyperbolic t-sne gradient positive term
+#####################################################
 cdef double compute_gradient_positive(double[:] val_P,
                                      double[:, :] pos_reference,
                                      np.int64_t[:] neighbors,
@@ -1297,7 +1282,9 @@ cdef double compute_gradient_positive(double[:] val_P,
     # Return the error (KL Divergence)
     return C
 
-
+#####################################################
+# BH hyperbolic t-sne gradient negative term
+#####################################################
 cdef double compute_gradient_negative(double[:, :] pos_reference,
                                       double* neg_f,
                                       _QuadTree qt,
@@ -1322,8 +1309,6 @@ cdef double compute_gradient_negative(double[:, :] pos_reference,
         double* summary
         double* pos
         double* neg_force
-        # clock_t t1 = 0, t2 = 0, t3 = 0
-
 
     with nogil, parallel(num_threads=num_threads):
         # Define thread-local buffers
@@ -1341,11 +1326,7 @@ cdef double compute_gradient_negative(double[:, :] pos_reference,
 
             # Find which nodes are summarizing and collect their centers of mass
             # deltas, and sizes, into vectorized arrays
-            # if take_timing:
-            #     t1 = clock()
             idx = qt.summarize(pos, summary, theta*theta)
-            # if take_timing:
-            #     t2 = clock()
 
             # Compute the t-SNE negative force
             # for the digits dataset, walking the tree
@@ -1355,9 +1336,6 @@ cdef double compute_gradient_negative(double[:, :] pos_reference,
                 dist2s = summary[j * offset + n_dimensions]
                 size = summary[j * offset + n_dimensions + 1]
                 qijZ = 1. / (1. + dist2s)  # 1/(1+dist)
-
-                # if size > 1:
-                #     printf("[QuadTree] Size: %g, %g\n", dist2s, dist2s * size / dist2s)
 
                 sum_Q += size * qijZ   # size of the node * q
 
@@ -1371,26 +1349,21 @@ cdef double compute_gradient_negative(double[:, :] pos_reference,
                 for ax in range(n_dimensions):
                     neg_force[ax] += mult * summary[j * offset + ax]
 
-            # if take_timing:
-            #     t3 = clock()
             for ax in range(n_dimensions):
                 neg_f[i * n_dimensions + ax] = neg_force[ax]
-            # if take_timing:
-            #     dta += t2 - t1
-            #     dtb += t3 - t2
 
         free(force)
         free(pos)
         free(neg_force)
         free(summary)
-    # if take_timing:
-    #     printf("[t-SNE] Tree: %li clock ticks | ", dta)
-    #     printf("Force computation: %li clock ticks\n", dtb)
 
     # Put sum_Q to machine EPSILON to avoid divisions by 0
     sum_Q = max(sum_Q, FLOAT64_EPS)
     return sum_Q
 
+#####################################################
+# Hyperbolic t-sne gradient python interface
+#####################################################
 def gradient(float[:] timings,
              double[:] val_P,
              double[:, :] pos_output,
@@ -1469,9 +1442,15 @@ def gradient(float[:] timings,
 
 
 
+
+
 #####################
 # GAUSSIAN GRADIENT #
 #####################
+
+#####################################################
+# Hyperbolic GaussianKL Python interface
+#####################################################
 def gaussian_gradient(float[:] timings,
              double[:] val_P,                   # high dim. affinity CSR matrix
              double[:, :] pos_output,           # matrix to holding the embeddings
@@ -1488,7 +1467,7 @@ def gaussian_gradient(float[:] timings,
              bint exact=1,
              bint area_split=0,
              bint grad_fix=0,
-             int var=1):
+             double var=1):
     cdef double C
     cdef int n
     cdef _QuadTree qt = _QuadTree(pos_output.shape[1], verbose)
@@ -1513,11 +1492,18 @@ def gaussian_gradient(float[:] timings,
     if TAKE_TIMING:
         t1 = clock()
 
+    
     # NOTE: Only exact gradient currently implemented
-    C = exact_gaussian_gradient(
-                            timings, val_P, pos_output, neighbors, indptr, forces,
-                            qt, theta, dof, skip_num_points, -1, compute_error,
-                            num_threads, var)
+    if exact:
+        C = exact_gaussian_gradient(
+                                timings, val_P, pos_output, neighbors, indptr, forces,
+                                qt, theta, dof, skip_num_points, -1, compute_error,
+                                num_threads, var)
+    else:
+        C = bh_gaussian_gradient(
+            timings, val_P, pos_output, neighbors, indptr, forces,
+            qt, theta, dof, skip_num_points, -1, compute_error,
+            num_threads, var)
 
     if TAKE_TIMING:
         t2 = clock()
@@ -1528,10 +1514,9 @@ def gaussian_gradient(float[:] timings,
 
     return C       
 
-
-""" 
-Exact version of gaussian gradient computation function (no BH approx.)
-"""
+#####################################################
+# Exact Hyperbolic GaussianKL 
+#####################################################
 cdef double exact_gaussian_gradient(float[:] timings,
                             double[:] val_P,                    # high. dim. affinity CSR matrix
                             double[:, :] pos_reference,         # embedding matrix 
@@ -1545,7 +1530,7 @@ cdef double exact_gaussian_gradient(float[:] timings,
                             long stop,
                             bint compute_error,
                             int num_threads, 
-                            float var) nogil:                   # var. of gaussian for q_ij
+                            double var) nogil:                   # var. of gaussian for q_ij
     # Having created the tree, calculate the gradient
     # in two components, the positive and negative forces
     cdef:
@@ -1559,6 +1544,8 @@ cdef double exact_gaussian_gradient(float[:] timings,
 
     cdef double* neg_f = <double*> malloc(sizeof(double) * n_samples * n_dimensions)
     cdef double* pos_f = <double*> malloc(sizeof(double) * n_samples * n_dimensions)
+
+    # printf("var: %.2f", var)
 
     if TAKE_TIMING:
         t1 = clock()
@@ -1588,7 +1575,7 @@ cdef double exact_gaussian_gradient(float[:] timings,
     for i in prange(start, n_samples, nogil=True, num_threads=num_threads, schedule='static'):
         for ax in range(n_dimensions):
             coord = i * n_dimensions + ax
-            tot_force[i, ax] =  (2 / var) * (pos_f[coord] - (neg_f[coord] / sQ))
+            tot_force[i, ax] =  (2 / var) * (pos_f[coord] - (neg_f[coord] / max(sQ, FLOAT32_TINY)))
     # NOTE: Why neg_f[coord] / sQ? 
     # neg_f[coord] contains the unnormalized distances. Since we can only normalize after
     # all the distances have been computed, the normalization factor is only available
@@ -1598,7 +1585,164 @@ cdef double exact_gaussian_gradient(float[:] timings,
     free(pos_f)
     return error
 
+#####################################################
+# BH Hyperbolic Gaussian KL
+#####################################################
+cdef double bh_gaussian_gradient(float[:] timings,
+                            double[:] val_P,                    # high. dim. affinity CSR matrix
+                            double[:, :] pos_reference,         # embedding matrix 
+                            np.int64_t[:] neighbors,            # val_P CSR neighbour indices
+                            np.int64_t[:] indptr,               # val_P CSR index pointers
+                            double[:, :] tot_force,             # matrix to store forces (output) in
+                            _QuadTree qt,
+                            float theta,
+                            int dof,
+                            long start,
+                            long stop,
+                            bint compute_error,
+                            int num_threads, 
+                            double var) nogil:    
+    # Having created the tree, calculate the gradient
+    # in two components, the positive and negative forces
+    cdef:
+        long i, coord
+        int ax
+        long n_samples = pos_reference.shape[0]
+        int n_dimensions = qt.n_dimensions
+        double sQ
+        double error
+        clock_t t1 = 0, t2 = 0
 
+    cdef double* neg_f = <double*> malloc(sizeof(double) * n_samples * n_dimensions)
+    cdef double* pos_f = <double*> malloc(sizeof(double) * n_samples * n_dimensions)
+
+    if TAKE_TIMING:
+        t1 = clock()
+
+    # Compute negative forces (in neg_f) unnormalized. Returns sQ (sum of Q) to normalize probabbilities
+    # neg_f holds unnormalized q_ij's (gaussian distances)
+    sQ = compute_BH_gaussian_gradient_negative(pos_reference, neighbors, indptr, 
+                                            neg_f, qt, dof, theta, start,
+                                            stop, num_threads, var)
+
+    if TAKE_TIMING:
+        t2 = clock()
+        timings[2] = ((float) (t2 - t1)) / CLOCKS_PER_SEC
+
+    if TAKE_TIMING:
+        t1 = clock()
+
+    # Compute positive forces, and cost function value (error) of the current embeddings
+    error = compute_gaussian_gradient_positive(val_P, pos_reference, neighbors, indptr,
+                                      pos_f, n_dimensions, dof, sQ, start,
+                                      qt.verbose, compute_error, num_threads, var)
+
+    if TAKE_TIMING:
+        t2 = clock()
+        timings[3] = ((float) (t2 - t1)) / CLOCKS_PER_SEC
+
+    for i in prange(start, n_samples, nogil=True, num_threads=num_threads, schedule='static'):
+        for ax in range(n_dimensions):
+            coord = i * n_dimensions + ax
+            tot_force[i, ax] =  (2 / var) * (pos_f[coord] - (neg_f[coord] / max(sQ, FLOAT32_TINY)))
+    # NOTE: Why neg_f[coord] / sQ? 
+    # neg_f[coord] contains the unnormalized distances. Since we can only normalize after
+    # all the distances have been computed, the normalization factor is only available
+    # at the end of compute_gradient_negative. So we return it and divide it here    
+
+    free(neg_f)
+    free(pos_f)
+    return error
+
+#####################################################
+# BH Hyperbolic GaussianKL Negative term
+#####################################################
+cdef double compute_BH_gaussian_gradient_negative(double[:, :] pos_reference,
+                                      np.int64_t[:] neighbors,
+                                      np.int64_t[:] indptr,
+                                      double* neg_f,
+                                      _QuadTree qt,
+                                      int dof,
+                                      float theta,
+                                      long start,
+                                      long stop,
+                                      int num_threads, 
+                                      double var) nogil:
+    cdef:
+        int ax
+        int n_dimensions = qt.n_dimensions
+        int offset = n_dimensions + 2
+        long i, j, k, idx
+        long n = stop - start
+        long dta = 0
+        long dtb = 0
+        double size, dist2s, mult
+        double qijZ, sum_Q = 0.0
+        long n_samples = indptr.shape[0] - 1
+        double dij, qij, dij_sq
+
+    with nogil, parallel(num_threads=num_threads):
+        # Define thread-local buffers
+        summary = <double *> malloc(sizeof(double) * n * offset)
+        force = <double *> malloc(sizeof(double) * n_dimensions)
+        pos = <double *> malloc(sizeof(double) * n_dimensions)
+        neg_force = <double *> malloc(sizeof(double) * n_dimensions)
+
+        # For each (source) node i
+        for i in prange(start, stop, schedule='static'):
+            # Clear the arrays
+            for ax in range(n_dimensions):
+                force[ax] = 0.0
+                neg_force[ax] = 0.0
+                pos[ax] = pos_reference[i, ax]
+
+            # Find which nodes are summarizing and collect their centers of mass
+            # deltas, and sizes, into vectorized arrays
+            # We get an array of summary forces, (from the perspective of node i), and with each
+            # summary we associate a 'size' value that indicates how many nodes were summarized
+            # In gradient computation we only care about these 2, and not the individual/specific
+            # indices etc.. anymore, hence this works
+            # idx: the nr. of summaries we have. (n_nodes / idx) tells us how much speedup we gained
+            idx = qt.summarize(pos, summary, theta*theta)
+
+            # Compute the hyp. Gaussian negative forces
+            # for the digits dataset, walking the tree
+            # is about 10-15x more expensive than the
+            # following for loop
+            
+            # For each summarized cell j (with respect to source node i)
+            for j in range(idx // offset):
+                dist2s = summary[j * offset + n_dimensions]         # sq. distance (i,j)
+                size = summary[j * offset + n_dimensions + 1]       # nr. of points summarized 
+
+                # Gaussian distance of i to node j
+                qijZ = exp(-dist2s / (2 * var))          
+
+                sum_Q += size * qijZ                       
+
+                # 'size' nodes all contribute 'dist2s' distances to the negative term
+                mult = size * qijZ * sqrt(dist2s)           
+
+                for ax in range(n_dimensions):
+                    # Negative force term is the sum of summarized terms:
+                    # size * qijZ * dist(i, j)
+                    neg_force[ax] += mult * summary[j * offset + ax]
+
+            for ax in range(n_dimensions):
+                neg_f[i * n_dimensions + ax] = neg_force[ax]
+
+        free(force)
+        free(pos)
+        free(neg_force)
+        free(summary)
+
+    # Put sum_Q to machine EPSILON to avoid divisions by 0
+    sum_Q = max(sum_Q, FLOAT64_EPS)
+    return sum_Q
+
+#####################################################
+# Exact Hyperbolic GaussianKL Negative term
+#####################################################
 """
 Computes the negative force term (stored in neg_f). 
 These forces are unnormalized since the gaussian distances have not been turned into probabilities yet.
@@ -1614,7 +1758,7 @@ cdef double compute_gaussian_gradient_negative(double[:, :] pos_reference,
                                       long start,
                                       long stop,
                                       int num_threads, 
-                                      float var) nogil:
+                                      double var) nogil:
     cdef:
         int ax
         int n_dimensions = qt.n_dimensions
@@ -1638,11 +1782,11 @@ cdef double compute_gaussian_gradient_negative(double[:, :] pos_reference,
                 if i == j:
                     continue
                 dij = distance(pos_reference[i, 0], pos_reference[i, 1], pos_reference[j, 0], pos_reference[j, 1])
-                dij_sq = dij * dij                      # sq. hyperbolic distance
+                dij_sq = dij * dij                       # sq. hyperbolic distance
 
-                qij = exp(-dij_sq / (2 * var))          # gaussian distnace
-                mult = qij * dij                        # negative term withotu gradient
-                sum_Q += qij                            # counter tracking normalization value
+                qijZ = exp(-dij_sq / (2 * var))          # gaussian distance
+                mult = qijZ * dij                        # negative term withotu gradient
+                sum_Q += qijZ                            # counter tracking normalization value
 
                 # Compute total negative forces
                 for ax in range(n_dimensions):
@@ -1653,6 +1797,9 @@ cdef double compute_gaussian_gradient_negative(double[:, :] pos_reference,
     return sum_Q
 
 
+#####################################################
+# Hyperbolic Gaussian KL Positive term
+#####################################################
 """
 Computes positive forces term of the gradient (stored in pos_f)
 Computes cost function value of current embedding (returned as C)
@@ -1669,7 +1816,7 @@ cdef double compute_gaussian_gradient_positive(double[:] val_P,
                                      int verbose,
                                      bint compute_error,
                                      int num_threads,
-                                     float var) nogil:
+                                     double var) nogil:
     cdef:
         int ax
         long i, j, k
@@ -1695,7 +1842,7 @@ cdef double compute_gaussian_gradient_positive(double[:] val_P,
                 
                 # Hyperbolic distance 
                 dij = distance(pos_reference[i, 0], pos_reference[i, 1], pos_reference[j, 0], pos_reference[j, 1])
-
+                dij_sq = dij * dij
                 # no pij * qij because qij is a remnant of t-distrib. gradient 
                 # in the gaussian gradient we get a (-2 / var) term that is incorporated in the main function (not here)
                 mult = pij
@@ -1714,6 +1861,11 @@ cdef double compute_gaussian_gradient_positive(double[:] val_P,
     
     # Return the error (KL Divergence)
     return C
+
+
+
+
+
 
 
 
