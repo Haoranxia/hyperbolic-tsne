@@ -1,0 +1,19 @@
+{
+    "dataset": "C_ELEGANS",
+    "dataset_info": {
+        "perplexity": 25,
+        "num_points": 0.05,
+        "pca": 50
+    },
+    "run_time:": 1888.1702857017517,
+    "ex_iterations": 1000,
+    "main_iterations": 7000,
+    "cost_function": "GaussianKL",
+    "var": 0.1,
+    "correct_grad": true,
+    "scale_fix": true,
+    "exact": true,
+    "exaggeration_factor": 12,
+    "optim_procedure": "Custom Momentum",
+    "extra info": "Same as experiment 20, but with no exaggeration. To test if exaggeration (for this dataset), adds anything"
+}
