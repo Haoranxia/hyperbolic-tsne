@@ -1,0 +1,1 @@
+{"dataset": "Tree_dataset", "dataset_info:": {"n_children": 2, "depth": 4, "cluster_size": 10, "dist": 1000, "n_nodes": 31}, "ex_iterations": 0, "main_iterations": 10000, "cost_function": "HyperbolicKL", "correct_grad": true, "scale_fix": true, "exact": true, "exaggeration_factor": 0, "optim_procedure": "Custom Momentum"}

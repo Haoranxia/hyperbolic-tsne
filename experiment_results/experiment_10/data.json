@@ -1,0 +1,20 @@
+{
+  "dataset": "Tree_dataset",
+  "dataset_info:": {
+    "n_children": 4,
+    "depth": 2,
+    "cluster_size": 10,
+    "dist": 5,
+    "n_nodes": 21
+  },
+  "ex_iterations": 1000,
+  "main_iterations": 20000,
+  "cost_function": "GaussianKL",
+  "var": 0.25,
+  "correct_grad": true,
+  "scale_fix": true,
+  "exact": true,
+  "exaggeration_factor": 12,
+  "optim_procedure": "Custom Momentum",
+  "extra info": "GaussianKL experiment but with 0.25 hyp. variance to experiment with compactness of embeddings"
+}

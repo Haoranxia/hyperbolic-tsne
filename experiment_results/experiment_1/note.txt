@@ -1,0 +1,14 @@
+[Notes for this experiment]
+In this experiment we notice that clusters are pushed towards the edge very strongly. 
+This could be due to the fact that the Poincare Disk only visualizes a tiny fraction of Hyperbolic Space.
+
+So the embedded points that stay true to the high dimensional distances can only be correctly embedded if theyre 
+towards the outer edge, as this then means that the distances are consistent. 
+
+For example d^H(-0.99, 0.99) (in Hyperoblic units) is about 20 Euclidean units. 
+
+
+[Future experiment ideas]
+If we reduce the variance for the GaussianKL loss function in Hyperbolic Space, then we can control how spread it gets.
+- Experiment with smaller variance levels
+

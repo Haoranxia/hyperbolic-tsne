@@ -1,0 +1,20 @@
+{
+  "dataset": "Tree_dataset",
+  "dataset_info:": {
+    "n_children": 4,
+    "depth": 2,
+    "cluster_size": 10,
+    "dist": 5,
+    "n_nodes": 21
+  },
+  "ex_iterations": 1000,
+  "main_iterations": 10000,
+  "cost_function": "GaussianKL",
+  "var": 1.0278685169039963,
+  "correct_grad": true,
+  "scale_fix": true,
+  "exact": true,
+  "exaggeration_factor": 12,
+  "optim_procedure": "Custom Momentum",
+  "extra info": "This experiment was performed with a correct affinity matrix (as computed in data_gen)"
+}

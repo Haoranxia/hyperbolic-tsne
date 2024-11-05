@@ -1,0 +1,21 @@
+{
+  "dataset": "Tree_dataset",
+  "dataset_info:": {
+    "n_children": 4,
+    "depth": 3,
+    "cluster_size": 10,
+    "dist": 5,
+    "n_nodes": 85
+  },
+  "run_time:": 105.98769688606262,
+  "ex_iterations": 1000,
+  "main_iterations": 5000,
+  "cost_function": "GaussianKL",
+  "var": 0.11884327191090152,
+  "correct_grad": true,
+  "scale_fix": true,
+  "exact": false,
+  "exaggeration_factor": 12,
+  "optim_procedure": "Custom Momentum",
+  "extra info": "GaussianKL with bh approx and early exag. I hoped to find the issues regarding extremely large gradients"
+}

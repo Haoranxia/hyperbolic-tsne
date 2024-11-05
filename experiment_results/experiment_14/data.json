@@ -1,0 +1,21 @@
+{
+  "dataset": "Tree_dataset",
+  "dataset_info:": {
+    "n_children": 4,
+    "depth": 3,
+    "cluster_size": 10,
+    "dist": 5,
+    "n_nodes": 85
+  },
+  "run_time:": 92.44457507133484,
+  "ex_iterations": 1000,
+  "main_iterations": 5000,
+  "cost_function": "GaussianKL",
+  "var": 0.11812681937045534,
+  "correct_grad": true,
+  "scale_fix": true,
+  "exact": false,
+  "exaggeration_factor": 12,
+  "optim_procedure": "Custom Momentum",
+  "extra info": "Using: hyp_sigma = (max_dist_H / max_dist) * sigma, and then squaring to get hyp_var"
+}
