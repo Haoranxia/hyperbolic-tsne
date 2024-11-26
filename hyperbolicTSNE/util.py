@@ -2,6 +2,7 @@ import os
 import csv
 import json
 import numpy as np
+import pandas as pd
 from hyperbolicTSNE.visualization import plot_poincare, animate
 from pathlib import Path
 
@@ -40,7 +41,9 @@ def find_ith_embedding(log_path, i):
                     return np.genfromtxt(total_file, delimiter=',')
             
 
-def opt_config(cf, learning_rate, exaggeration_factor, ex_iterations, main_iterations, exact, vanilla=True, grad_scale_fix=True, grad_fix=True):
+def opt_config(cf, learning_rate, exaggeration_factor, ex_iterations, main_iterations, 
+               exact, vanilla=True, grad_scale_fix=True, grad_fix=True, size_tol=0.999, 
+               max_no_progress=2000, min_grad_norm=1e-10):
     """
     Return an opt_config dict with all the parameters set
     """
@@ -56,10 +59,12 @@ def opt_config(cf, learning_rate, exaggeration_factor, ex_iterations, main_itera
         momentum=0.2,  # Set momentum during non-exaggerated gradient descent to 0.8
         exact=exact,  # To use the quad tree for acceleration (like Barnes-Hut in the Euclidean setting) or to evaluate the gradient exactly
         area_split=False,  # To build or not build the polar quad tree based on equal area splitting or - alternatively - on equal length splitting
-        n_iter_check=1000,  # Needed for early stopping criterion
-        size_tol=0.999,  # Size of the embedding to be used as early stopping criterion
+        n_iter_check=2000,  # Needed for early stopping criterion
+        size_tol=size_tol,  # Size of the embedding to be used as early stopping criterion
         grad_scale_fix=grad_scale_fix,
         grad_fix=grad_fix,
+        n_iter_without_progress=max_no_progress, # Max. nr. of iterations with no progress (worse gradients) before we stop
+        min_grad_norm=min_grad_norm, # Min. norm of gradient we accept before aborting
     )   
 
 
@@ -120,6 +125,22 @@ def write_data(data_header, data_row, file_path="results/results.csv"):
         writer.writerow(data_row)
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+#################################
+# Functions for storing results #
+#################################
+
 def store_visuals(hyperbolicEmbedding, dataLabels, save_folder, file_name, opt_params):
     """
     Create and store visualizations (.png and .gif) of our embedding
@@ -135,7 +156,7 @@ def store_visuals(hyperbolicEmbedding, dataLabels, save_folder, file_name, opt_p
     animate(opt_params["logging_dict"], dataLabels, f"{file_name}.gif", fast=True, plot_ee=True)
 
 
-def save_experiment_results(save_folder, data_fig, emb_fig, opt_params, dataLabels, exp_data, step=10):
+def save_experiment_results(save_folder, data_fig, emb_fig, opt_params, dataLabels, exp_data, embedding, step=10):
     """
     save_folder:        general folder to save results to
     data_fig:           original data pyplot figure
@@ -159,9 +180,142 @@ def save_experiment_results(save_folder, data_fig, emb_fig, opt_params, dataLabe
 
     # Create emb. animation & save
     file_name = save_folder + "/emb_anim.gif"
-    animate(opt_params["logging_dict"], dataLabels, file_name, fast=True, plot_ee=True, step=step)
+    animate(opt_params["logging_dict"], dataLabels, file_name, fast=True, plot_ee=True, step=step, size=1)
 
     # Store experiment data in csv
     with open(save_folder + "data.json", 'w') as f:
         json.dump(exp_data, f)
 
+    # Store most recent embedding into csv
+    pd.DataFrame(embedding).to_csv(f"{save_folder}/emb.csv", header=False, index=False)
+
+
+
+def next_experiment_folder_id(folder):
+    """ 
+    folder:     path to folder containing experiment folders named as 
+                'experiment_{id}'
+
+    Returns the id of the next experiment folder we want to save experiments to by looking
+    at existing experiment folders' id's and returning the largest one + 1 there.
+    """
+    folder = Path(folder)
+    max_fdr_nr = 0
+    for item in folder.iterdir():
+        if item.is_dir():
+            idx = int(str(item).split('_')[-1])
+            if idx > max_fdr_nr:
+                max_fdr_nr = idx
+
+    return max_fdr_nr + 1
+
+
+
+def GaussianKL_Tree_results(n_children, depth, cluster_size, dist, n_nodes, htsne, ex_iterations,
+                            main_iterations, cf, hyp_var, size_tol, max_dist_H, max_dist, correct_grad,
+                            grad_scale_fix, exact_grad, exaggeration_factor, optim_procedure, description=None):    
+    return {
+            "dataset":     "Tree_Dataset",
+            'dataset_info:':        {
+                    'n_children': n_children,
+                    'depth': depth,
+                    'cluster_size': cluster_size,
+                    'dist': dist,
+                    'n_nodes': int(n_nodes),
+                },
+            "run_time:":            htsne.runtime,
+            "ex_iterations":        ex_iterations,
+            "main_iterations":      main_iterations, 
+            "actual_iterations":    htsne.its,
+            "cost_function":        cf.class_str(), 
+            "variance_info": {                              
+                "var":              hyp_var,
+                "size_tol":         size_tol,
+                "max_dist_H":       max_dist_H,
+                "max_dist":         max_dist,
+            },
+            "correct_grad":         correct_grad,
+            "scale_fix":            grad_scale_fix,
+            "exact":                exact_grad,
+            "exaggeration_factor":  0 if ex_iterations == 0 else exaggeration_factor,
+            "optim_procedure":      optim_procedure,   
+            "extra info":           description,   
+        }
+
+def GaussianKL_results(name, htsne, ex_iterations, perp, num_p, pca,
+                       main_iterations, cf, hyp_var, size_tol, max_dist_H, max_dist, correct_grad,
+                       grad_scale_fix, exact_grad, exaggeration_factor, optim_procedure, description=None):    
+    return {
+            "dataset":     name,
+            'dataset_info': {
+                'perplexity': perp, 
+                'num_points': num_p,
+                'pca':        pca,
+            },
+            "run_time:":            htsne.runtime,
+            "ex_iterations":        ex_iterations,
+            "main_iterations":      main_iterations, 
+            "actual_iterations":    htsne.its,
+            "cost_function":        cf.class_str(), 
+            "variance_info": {                              
+                "var":              hyp_var,
+                "size_tol":         size_tol,
+                "max_dist_H":       max_dist_H,
+                "max_dist":         max_dist,
+            },
+            "correct_grad":         correct_grad,
+            "scale_fix":            grad_scale_fix,
+            "exact":                exact_grad,
+            "exaggeration_factor":  0 if ex_iterations == 0 else exaggeration_factor,
+            "optim_procedure":      optim_procedure,   
+            "extra info":           description,   
+        }
+
+def HyperbolicKL_Tree_results(n_children, depth, cluster_size, dist, n_nodes, htsne, ex_iterations,
+                              main_iterations, cf, correct_grad,
+                              grad_scale_fix, exact_grad, exaggeration_factor, optim_procedure, description=None):
+    return {
+            "dataset":     "Tree_Dataset",
+            'dataset_info:':        {
+                    'n_children': n_children,
+                    'depth': depth,
+                    'cluster_size': cluster_size,
+                    'dist': dist,
+                    'n_nodes': int(n_nodes),
+                },
+            "run_time:":            htsne.runtime,
+            "ex_iterations":        ex_iterations,
+            "main_iterations":      main_iterations, 
+            "actual_iterations":    htsne.its,
+            "cost_function":        cf.class_str(), 
+            "correct_grad":         correct_grad,
+            "scale_fix":            grad_scale_fix,
+            "exact":                exact_grad,
+            "exaggeration_factor":  0 if ex_iterations == 0 else exaggeration_factor,
+            "optim_procedure":      optim_procedure,   
+            "extra info":           description,   
+    }
+
+
+def HyperbolicKL_results(name, htsne, ex_iterations, perp, num_p, pca,
+                       main_iterations, cf, correct_grad,
+                       grad_scale_fix, exact_grad, exaggeration_factor, optim_procedure, description=None):    
+    return {
+            "dataset":     name,
+            'dataset_info': {
+                'perplexity': perp, 
+                'num_points': num_p,
+                'pca':        pca,
+            },
+            "run_time:":            htsne.runtime,
+            "ex_iterations":        ex_iterations,
+            "main_iterations":      main_iterations, 
+            "actual_iterations":    htsne.its,
+            "cost_function":        cf.class_str(), 
+            "correct_grad":         correct_grad,
+            "scale_fix":            grad_scale_fix,
+            "exact":                exact_grad,
+            "exaggeration_factor":  0 if ex_iterations == 0 else exaggeration_factor,
+            "optim_procedure":      optim_procedure,   
+            "extra info":           description,   
+        }

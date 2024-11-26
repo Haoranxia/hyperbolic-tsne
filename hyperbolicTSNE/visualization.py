@@ -15,11 +15,43 @@ from tqdm import tqdm
 from hyperbolicTSNE import Datasets
 
 
+def plot_tree_cluster_highlight(points, n_nodes, labels=None):
+    """ 
+    Plot points in such a way that points within a cluster are colored separately.
+    This is especially useful for embeddings where clusters are very dense and we want to see if 
+    they're all sitting on 1 point or whether there actually is some separation.
+    
+    """
+    fig, ax = plt.subplots()
+
+
+    return fig
+
+
+def plot_tree(points, labels=None):
+    fig, ax = plt.subplots()
+
+    # Plot non root nodes
+    ax.scatter(points[1:, 0], points[1:, 1], marker=".", s=1, c="orange")
+
+    # Plot root node
+    ax.scatter(points[0, 0], points[0, 1], marker=".", s=5, c="black")
+
+    # Add circle
+    ax.add_patch(plt.Circle((0, 0), radius=1, edgecolor="b", facecolor="None"))
+
+    # Make plot square shaped
+    ax.axis("square")
+
+    return fig
+
+
 def plot_poincare(points, colors=None, labels=None):
     fig, ax = plt.subplots()
     ax.scatter(points[:, 0], points[:, 1],
                c=colors,
                marker=".",
+               s=1,             # size of points
                cmap="tab10")
     ax.add_patch(plt.Circle((0, 0), radius=1, edgecolor="b", facecolor="None"))
     ax.axis("square")
@@ -282,7 +314,7 @@ def plot_poincare_zoomed(points, labels=None):
     return fig
 
 
-def animate(log_dict, labels, file_name, fast=False, is_hyperbolic=True, plot_ee=False, first_frame=None, step=10):
+def animate(log_dict, labels, file_name, fast=False, is_hyperbolic=True, plot_ee=False, first_frame=None, step=10, size=20):
     scatter_data = [] if first_frame is None else [("-1", first_frame)]
     for subdir, dirs, files in os.walk(log_dict["log_path"]):
         for fi, file in enumerate(sorted(files, key=lambda x: int(x.split(".")[0]))):
@@ -297,7 +329,7 @@ def animate(log_dict, labels, file_name, fast=False, is_hyperbolic=True, plot_ee
 
     _, data = scatter_data[0 if is_hyperbolic else -1]
 
-    scatter = ax.scatter(data[:, 0], data[:, 1], c=labels, marker=".", linewidth=0.5, s=20, cmap="tab10")
+    scatter = ax.scatter(data[:, 0], data[:, 1], c=labels, marker=".", linewidth=0.5, s=size, cmap="tab10")
 
     if is_hyperbolic:
         uc = plt.Circle((0, 0), radius=1, edgecolor="b", facecolor="None")

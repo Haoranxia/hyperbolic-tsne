@@ -1205,17 +1205,13 @@ cdef double compute_gradient(float[:] timings,
         for ax in range(n_dimensions):
             coord = i * n_dimensions + ax
             tot_force[i, ax] = pos_f[coord] - (neg_f[coord] / sQ)
-    # NOTE: Why neg_f[coord] / sQ? 
-    # neg_f[coord] contains the unnormalized distances. Since we can only normalize after
-    # all the distances have been computed, the normalization factor is only available
-    # at the end of compute_gradient_negative. So we return it and divide it here    
 
     free(neg_f)
     free(pos_f)
     return error
 
 #####################################################
-# BH hyperbolic t-sne gradient positive term
+# Hyperbolic t-sne gradient positive term
 #####################################################
 cdef double compute_gradient_positive(double[:] val_P,
                                      double[:, :] pos_reference,
@@ -1492,18 +1488,17 @@ def gaussian_gradient(float[:] timings,
     if TAKE_TIMING:
         t1 = clock()
 
-    
-    # NOTE: Only exact gradient currently implemented
     if exact:
         C = exact_gaussian_gradient(
-                                timings, val_P, pos_output, neighbors, indptr, forces,
-                                qt, theta, dof, skip_num_points, -1, compute_error,
-                                num_threads, var)
+                timings, val_P, pos_output, neighbors, indptr, forces,
+                qt, theta, dof, skip_num_points, -1, compute_error,
+                num_threads, var)
+                
     else:
         C = bh_gaussian_gradient(
-            timings, val_P, pos_output, neighbors, indptr, forces,
-            qt, theta, dof, skip_num_points, -1, compute_error,
-            num_threads, var)
+                timings, val_P, pos_output, neighbors, indptr, forces,
+                qt, theta, dof, skip_num_points, -1, compute_error,
+                num_threads, var)
 
     if TAKE_TIMING:
         t2 = clock()
@@ -1575,12 +1570,12 @@ cdef double exact_gaussian_gradient(float[:] timings,
     for i in prange(start, n_samples, nogil=True, num_threads=num_threads, schedule='static'):
         for ax in range(n_dimensions):
             coord = i * n_dimensions + ax
-            tot_force[i, ax] =  (2 / var) * (pos_f[coord] - (neg_f[coord] / max(sQ, FLOAT32_TINY)))
+            tot_force[i, ax] = (2 / var) * (pos_f[coord] - (neg_f[coord] / max(sQ, FLOAT32_TINY)))
+
     # NOTE: Why neg_f[coord] / sQ? 
     # neg_f[coord] contains the unnormalized distances. Since we can only normalize after
     # all the distances have been computed, the normalization factor is only available
     # at the end of compute_gradient_negative. So we return it and divide it here    
-
     free(neg_f)
     free(pos_f)
     return error
@@ -1644,11 +1639,7 @@ cdef double bh_gaussian_gradient(float[:] timings,
     for i in prange(start, n_samples, nogil=True, num_threads=num_threads, schedule='static'):
         for ax in range(n_dimensions):
             coord = i * n_dimensions + ax
-            tot_force[i, ax] =  (2 / var) * (pos_f[coord] - (neg_f[coord] / max(sQ, FLOAT32_TINY)))
-    # NOTE: Why neg_f[coord] / sQ? 
-    # neg_f[coord] contains the unnormalized distances. Since we can only normalize after
-    # all the distances have been computed, the normalization factor is only available
-    # at the end of compute_gradient_negative. So we return it and divide it here    
+            tot_force[i, ax] = (2 / var) * (pos_f[coord] - (neg_f[coord] / max(sQ, FLOAT32_TINY)))
 
     free(neg_f)
     free(pos_f)
@@ -1668,6 +1659,8 @@ cdef double compute_BH_gaussian_gradient_negative(double[:, :] pos_reference,
                                       long stop,
                                       int num_threads, 
                                       double var) nogil:
+    if stop == -1:
+        stop = pos_reference.shape[0]
     cdef:
         int ax
         int n_dimensions = qt.n_dimensions
@@ -1676,10 +1669,13 @@ cdef double compute_BH_gaussian_gradient_negative(double[:, :] pos_reference,
         long n = stop - start
         long dta = 0
         long dtb = 0
-        double size, dist2s, mult
+        double size, mult
         double qijZ, sum_Q = 0.0
-        long n_samples = indptr.shape[0] - 1
         double dij, qij, dij_sq
+        double* force
+        double* summary
+        double* pos
+        double* neg_force
 
     with nogil, parallel(num_threads=num_threads):
         # Define thread-local buffers
@@ -1712,20 +1708,24 @@ cdef double compute_BH_gaussian_gradient_negative(double[:, :] pos_reference,
             
             # For each summarized cell j (with respect to source node i)
             for j in range(idx // offset):
-                dist2s = summary[j * offset + n_dimensions]         # sq. distance (i,j)
+                dij_sq = summary[j * offset + n_dimensions]         # sq. distance (i,j)
                 size = summary[j * offset + n_dimensions + 1]       # nr. of points summarized 
 
                 # Gaussian distance of i to node j
-                qijZ = exp(-dist2s / (2 * var))          
+                qijZ = exp(-dij_sq / (2 * var))          
 
                 sum_Q += size * qijZ                       
 
                 # 'size' nodes all contribute 'dist2s' distances to the negative term
-                mult = size * qijZ * sqrt(dist2s)           
+                mult = size * qijZ
+
+                # Gradient correction term
+                if GRAD_FIX:
+                    mult *= sqrt(dij_sq)           
 
                 for ax in range(n_dimensions):
                     # Negative force term is the sum of summarized terms:
-                    # size * qijZ * dist(i, j)
+                    # size * qijZ * dist * dist_grad(i, j)
                     neg_force[ax] += mult * summary[j * offset + ax]
 
             for ax in range(n_dimensions):
@@ -1772,6 +1772,7 @@ cdef double compute_gaussian_gradient_negative(double[:, :] pos_reference,
         long n_samples = indptr.shape[0] - 1
         double dij, qij, dij_sq
 
+    sum_Q = 0.0
     with nogil, parallel(num_threads=num_threads):
         for i in prange(start, n_samples, schedule='static'):
             # Init the gradient vector
@@ -1781,11 +1782,16 @@ cdef double compute_gaussian_gradient_negative(double[:, :] pos_reference,
             for j in range(start, n_samples):
                 if i == j:
                     continue
+
                 dij = distance(pos_reference[i, 0], pos_reference[i, 1], pos_reference[j, 0], pos_reference[j, 1])
                 dij_sq = dij * dij                       # sq. hyperbolic distance
 
                 qijZ = exp(-dij_sq / (2 * var))          # gaussian distance
-                mult = qijZ * dij                        # negative term withotu gradient
+                mult = qijZ                              # the gradient term 
+
+                if GRAD_FIX:                             # Correction factor
+                    mult *= dij                          # correction in gradient term
+
                 sum_Q += qijZ                            # counter tracking normalization value
 
                 # Compute total negative forces
@@ -1843,11 +1849,14 @@ cdef double compute_gaussian_gradient_positive(double[:] val_P,
                 # Hyperbolic distance 
                 dij = distance(pos_reference[i, 0], pos_reference[i, 1], pos_reference[j, 0], pos_reference[j, 1])
                 dij_sq = dij * dij
+
                 # no pij * qij because qij is a remnant of t-distrib. gradient 
                 # in the gaussian gradient we get a (-2 / var) term that is incorporated in the main function (not here)
+
                 mult = pij
+                # Correction term from correct gradient derivation
                 if GRAD_FIX:
-                    mult = pij * dij
+                    mult *= dij
 
                 # only compute the error when needed
                 if compute_error:

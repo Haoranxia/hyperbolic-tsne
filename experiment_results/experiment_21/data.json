@@ -1,1 +1,21 @@
-{"dataset": 
+{
+  "dataset": "Tree_dataset",
+  "dataset_info:": {
+    "n_children": 4,
+    "depth": 3,
+    "cluster_size": 10,
+    "dist": 5,
+    "n_nodes": 85
+  },
+  "run_time:": 117.34780597686768,
+  "ex_iterations": 0,
+  "main_iterations": 6000,
+  "cost_function": "GaussianKL",
+  "var": 0.1,
+  "correct_grad": true,
+  "scale_fix": true,
+  "exact": true,
+  "exaggeration_factor": 0,
+  "optim_procedure": "Custom Momentum",
+  "extra info": "Same as experiment 20, but with no exaggeration. To test if exaggeration (for this dataset), adds anything"
+}

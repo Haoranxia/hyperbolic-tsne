@@ -561,7 +561,7 @@ class GlobalHSNE(HyperbolicKL):
         )
 
         grad = grad.ravel()
-        grad *= 4
+        # grad *= 4
 
         if save_timings:
             self.results.append(timings)
@@ -647,7 +647,7 @@ class GaussianKL(HyperbolicKL):
         )
 
         grad = grad.ravel()
-        grad *= 4
+        grad *= 4             # NOTE: Not correct for GaussianKL. But correct for HyperbolicKL
 
         if save_timings:
             self.results.append(timings)

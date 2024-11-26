@@ -101,9 +101,9 @@ def log_iteration(logging_dict, logging_key, it, y, n_samples, n_components,
 ##########################################
 
 def gradient_descent(
-        y0, cf, cf_params, *, start_it=0, n_iter=100, n_iter_check=np.inf, n_iter_without_progress=500,
+        y0, cf, cf_params, *, start_it=0, n_iter=100, n_iter_check=np.inf, n_iter_without_progress=2000,
         threshold_cf=0., threshold_its=-1, threshold_check_size=-1.,
-        momentum=0.8, learning_rate=200.0, min_gain=0.01, vanilla=False, min_grad_norm=1e-7, error_tol=0, size_tol=None,
+        momentum=0.8, learning_rate=200.0, min_gain=0.01, vanilla=False, min_grad_norm=1e-15, error_tol=0, size_tol=None,
         verbose=0, rescale=None, n_iter_rescale=np.inf, gradient_mask=np.ones, grad_scale_fix=False,
         logging_dict=None, logging_key=None,
 ):
@@ -182,8 +182,6 @@ def gradient_descent(
     i : int
         Last iteration.
     """
-    print("Running Gradient Descent, Verbosity: " + str(verbose))
-
     #############################
     # INITIALIZATION AND CHECKS #
     #############################
@@ -251,12 +249,6 @@ def gradient_descent(
         tic_l = time()
     # End: logging
 
-    
-
-
-
-
-
 
     #############
     # MAIN LOOP #
@@ -276,10 +268,6 @@ def gradient_descent(
         
         if compute_error or logging:  # TODO: add different levels of logging to avoid bottlenecks
             error, grad = cf.obj_grad(y, **cf_params)       # NOTE: This is where we call the cost function
-            # print(grad)
-            if np.isinf(grad).any():
-                print("Infinity in grad")
-                print(grad)
 
             if isinstance(cf, HyperbolicKL):
                 # New Fix; Multiply gradient by inverse metric tensor
@@ -290,10 +278,12 @@ def gradient_descent(
 
                 try:
                     grad_norm = linalg.norm(grad)
+
                 except ValueError:
                     print(f"Produced value error in grad_norm computation at iteration:{i}")
                     # print(y)
                     print(grad)
+                    np.savetxt('norm.txt', grad, delimiter=',')
                     break 
 
             else:
@@ -302,14 +292,6 @@ def gradient_descent(
         else:
             grad = cf.grad(y, **cf_params)
             grad_norm = linalg.norm(grad)
-
-
-
-
-
-
-
-
 
         #####################
         # GRADIENT UPDATING #
@@ -379,7 +361,7 @@ def gradient_descent(
                 y = res_exp.ravel()
                 
 
-            # Constrain if we overeshoot boundaries
+            # Constrain if we overshoot boundaries
             res_constrain = np.empty((n_samples, 2), dtype=ctypes.c_double)
             tsne.constrain(
                 y.reshape(n_samples, 2).astype(ctypes.c_double),
@@ -580,7 +562,7 @@ def gradient_descent(
                     print("[t-SNE] Iteration %d: did not make any progress "
                           "during the last %d episodes. Finished."
                           % (i + 1, n_iter_without_progress))
-                print("2")
+                print(f"2 iter without progress: {n_iter_without_progress}")
                 break
             
             # Gradients are too small
@@ -588,7 +570,7 @@ def gradient_descent(
                 if verbose >= 2:
                     print("[t-SNE] Iteration %d: gradient norm %f. Finished."
                           % (i + 1, grad_norm))
-                print("3")
+                print(f"3 grad_norm:{grad_norm}, min_grad_norm:{min_grad_norm}")
                 break
             
             # When embedding points get too close to the edge
@@ -599,5 +581,12 @@ def gradient_descent(
                           (i + 1, emb_point_dists))
                 print("4")
                 break
+
+            # When update step is too large for the disk 
+            # grad_norms = np.linalg.norm(grad, axis=1)
+            # max_grad_idx = np.argmax(grad_norms)
+            # if grad_norms[max_grad_idx] > 1e+2:
+            #     print(f"grad norm big: {grad_norms[max_grad_idx]} at index:{max_grad_idx}, at iteration:{i - start_it}")
+            #     break 
 
     return y.reshape(n_samples, n_components), error, i - start_it
