@@ -139,7 +139,7 @@ class SequentialOptimizer:
         Y : numpy array
             Embedding of the high-dimensional data.
         cf_val : float
-            Cost function value of the embedding.
+            Cost function value of the embedding after 1 optimization run.
         time : float
             Time taken to compute the embedding.
         its_done : int

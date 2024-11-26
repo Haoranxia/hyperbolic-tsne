@@ -178,7 +178,7 @@ def gradient_descent(
     p : array, shape (n_params,)
         Optimum parameters.
     error : float
-        Optimum.
+        Optimum. Error after running an optimization sequence
     i : int
         Last iteration.
     """
@@ -285,6 +285,9 @@ def gradient_descent(
                     print(grad)
                     np.savetxt('norm.txt', grad, delimiter=',')
                     break 
+
+                # Add error to a list for logging purposes
+                cf.cf_values.append(error)
 
             else:
                 grad_norm = linalg.norm(grad)

@@ -71,9 +71,11 @@ class HyperbolicKL:
             )
         self.n_components = n_components
         self.params = other_params
-        # Print whether were using the correct gradient or not
-        # print("Grad Fix: ", self.params["params"]["grad_fix"])          # TODO: Eventually remove
         self.results = []
+
+        # A list of cost function values per iteration.
+        # NOTE: Accessible through htsne.optimizer.cf 
+        self.cf_values = []
 
     @classmethod
     def class_str(cls):
