@@ -156,7 +156,7 @@ def store_visuals(hyperbolicEmbedding, dataLabels, save_folder, file_name, opt_p
     animate(opt_params["logging_dict"], dataLabels, f"{file_name}.gif", fast=True, plot_ee=True)
 
 
-def save_experiment_results(save_folder, data_fig, emb_fig, opt_params, dataLabels, exp_data, embedding, step=10):
+def save_experiment_results(save_folder, data_fig, emb_fig, opt_params, dataLabels, exp_data, embedding, htsne, step=10):
     """
     save_folder:        general folder to save results to
     data_fig:           original data pyplot figure
@@ -188,6 +188,12 @@ def save_experiment_results(save_folder, data_fig, emb_fig, opt_params, dataLabe
 
     # Store most recent embedding into csv
     pd.DataFrame(embedding).to_csv(f"{save_folder}/emb.csv", header=False, index=False)
+
+    # Store cost function values
+    file_name = f"{save_folder}/cfs.txt"
+    with open(file_name, 'w') as f:
+        for cf_val in htsne.optimizer.cf.cf_values:
+            f.write(f"{cf_val}\n")
 
 
 
