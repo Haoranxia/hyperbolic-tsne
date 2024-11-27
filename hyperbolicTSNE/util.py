@@ -218,7 +218,7 @@ def next_experiment_folder_id(folder):
 
 
 def GaussianKL_Tree_results(n_children, depth, cluster_size, dist, n_nodes, htsne, ex_iterations,
-                            main_iterations, cf, hyp_var, size_tol, max_dist_H, max_dist, correct_grad,
+                            main_iterations, lr, cf, hyp_var, size_tol, max_dist_H, max_dist, correct_grad,
                             grad_scale_fix, exact_grad, exaggeration_factor, optim_procedure, description=None):    
     return {
             "dataset":     "Tree_Dataset",
@@ -233,6 +233,7 @@ def GaussianKL_Tree_results(n_children, depth, cluster_size, dist, n_nodes, htsn
             "ex_iterations":        ex_iterations,
             "main_iterations":      main_iterations, 
             "actual_iterations":    htsne.its,
+            "learning_rate":        lr,
             "cost_function":        cf.class_str(), 
             "variance_info": {                              
                 "var":              hyp_var,
@@ -248,7 +249,7 @@ def GaussianKL_Tree_results(n_children, depth, cluster_size, dist, n_nodes, htsn
             "extra info":           description,   
         }
 
-def GaussianKL_results(name, htsne, ex_iterations, perp, num_p, pca,
+def GaussianKL_results(name, htsne, ex_iterations, lr, perp, num_p, pca,
                        main_iterations, cf, hyp_var, size_tol, max_dist_H, max_dist, correct_grad,
                        grad_scale_fix, exact_grad, exaggeration_factor, optim_procedure, description=None):    
     return {
@@ -262,6 +263,7 @@ def GaussianKL_results(name, htsne, ex_iterations, perp, num_p, pca,
             "ex_iterations":        ex_iterations,
             "main_iterations":      main_iterations, 
             "actual_iterations":    htsne.its,
+            "learning_rate":        lr,
             "cost_function":        cf.class_str(), 
             "variance_info": {                              
                 "var":              hyp_var,
@@ -278,7 +280,7 @@ def GaussianKL_results(name, htsne, ex_iterations, perp, num_p, pca,
         }
 
 def HyperbolicKL_Tree_results(n_children, depth, cluster_size, dist, n_nodes, htsne, ex_iterations,
-                              main_iterations, cf, correct_grad,
+                              main_iterations, lr, cf, correct_grad,
                               grad_scale_fix, exact_grad, exaggeration_factor, optim_procedure, description=None):
     return {
             "dataset":     "Tree_Dataset",
@@ -293,6 +295,7 @@ def HyperbolicKL_Tree_results(n_children, depth, cluster_size, dist, n_nodes, ht
             "ex_iterations":        ex_iterations,
             "main_iterations":      main_iterations, 
             "actual_iterations":    htsne.its,
+            "learning_rate":        lr,
             "cost_function":        cf.class_str(), 
             "correct_grad":         correct_grad,
             "scale_fix":            grad_scale_fix,
@@ -303,7 +306,7 @@ def HyperbolicKL_Tree_results(n_children, depth, cluster_size, dist, n_nodes, ht
     }
 
 
-def HyperbolicKL_results(name, htsne, ex_iterations, perp, num_p, pca,
+def HyperbolicKL_results(name, htsne, ex_iterations, lr, perp, num_p, pca,
                        main_iterations, cf, correct_grad,
                        grad_scale_fix, exact_grad, exaggeration_factor, optim_procedure, description=None):    
     return {
@@ -317,6 +320,7 @@ def HyperbolicKL_results(name, htsne, ex_iterations, perp, num_p, pca,
             "ex_iterations":        ex_iterations,
             "main_iterations":      main_iterations, 
             "actual_iterations":    htsne.its,
+            "learning_rate":        lr,
             "cost_function":        cf.class_str(), 
             "correct_grad":         correct_grad,
             "scale_fix":            grad_scale_fix,
