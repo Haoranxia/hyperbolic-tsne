@@ -39,7 +39,7 @@ cdef int ANGLE = 1
 cdef double MACHINE_EPSILON = np.finfo(np.double).eps
 cdef int TAKE_TIMING = 1
 cdef int AREA_SPLIT = 0
-cdef int GRAD_FIX = 0
+cdef int GRAD_FIX = 1
 
 cdef double clamp(double n, double lower, double upper) nogil:
     cdef double t = lower if n < lower else n

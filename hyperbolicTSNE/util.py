@@ -156,7 +156,9 @@ def store_visuals(hyperbolicEmbedding, dataLabels, save_folder, file_name, opt_p
     animate(opt_params["logging_dict"], dataLabels, f"{file_name}.gif", fast=True, plot_ee=True)
 
 
-def save_experiment_results(save_folder, data_fig, emb_fig, opt_params, dataLabels, exp_data, embedding, htsne, step=10):
+
+def save_experiment_results(save_folder, data_fig, emb_fig, opt_params, dataLabels, 
+                            exp_data, embedding, htsne, dataX=None, X_embedded=None, labels=None, step=10):
     """
     save_folder:        general folder to save results to
     data_fig:           original data pyplot figure
@@ -186,8 +188,17 @@ def save_experiment_results(save_folder, data_fig, emb_fig, opt_params, dataLabe
     with open(save_folder + "data.json", 'w') as f:
         json.dump(exp_data, f)
 
+    # Store high dim. positions into csv
+    pd.DataFrame(dataX).to_csv(f"{save_folder}/high_dim_emb.csv", header=False, index=False)
+
+    # Store initial embedding into csv
+    pd.DataFrame(X_embedded).to_csv(f"{save_folder}/initial_emb.csv", header=False, index=False)
+
     # Store most recent embedding into csv
     pd.DataFrame(embedding).to_csv(f"{save_folder}/emb.csv", header=False, index=False)
+
+    # Store corresponding lables into csv
+    pd.DataFrame(labels).to_csv(f"{save_folder}/labels.csv", header=False, index=False)
 
     # Store cost function values
     file_name = f"{save_folder}/cfs.txt"
